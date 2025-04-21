@@ -14,10 +14,6 @@ Copyright © 2025 Kibah Corps. All rights reserved.
 - **Game Data Repository**: Browse comprehensive reference data on all in-game products and effects
 - **Data Analysis Tools**: Analyze test results and improve business strategies
 
-## Screenshots
-
-*Screenshots will be added here*
-
 ## How to Use
 
 Run the main application to launch the GUI:
