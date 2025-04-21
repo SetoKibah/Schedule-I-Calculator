@@ -1,14 +1,22 @@
-# Schedule I Profit Calculator
+# Schedule I Enterprise Suite
 
-A comprehensive profit calculator for the game Schedule I that helps players optimize their drug mixing recipes for maximum profit.
+A comprehensive business management application for the game Schedule I that helps players optimize their drug mixing recipes for maximum profit, manage customer data, and track business operations.
+
+Copyright © 2025 Kibah Corps. All rights reserved.
 
 ## Features
 
-- Calculate the market value, cost, and profit margin for any combination of base products and mixers
-- Predict effects based on ingredient combinations
-- Find the most profitable recipes for each base product
-- Testing framework to document and analyze in-game results
-- Data analyzer to suggest calculator improvements based on empirical testing
+- **Profit Calculator**: Calculate the market value, cost, and profit margin for any combination of base products and mixers
+- **Effects Preview**: Instantly see how different mixers will affect your product
+- **Recipe Management**: Save and compare custom recipes to find your most profitable combinations
+- **Top Recipes Analysis**: Automatically find the most profitable recipes for each base product
+- **Customer Database**: Track customer preferences, locations, relations, and purchase history
+- **Game Data Repository**: Browse comprehensive reference data on all in-game products and effects
+- **Data Analysis Tools**: Analyze test results and improve business strategies
+
+## Screenshots
+
+*Screenshots will be added here*
 
 ## How to Use
 
@@ -29,16 +37,35 @@ python data_analyzer.py   # To analyze collected data and suggest improvements
 
 - `main.py` - Main application entry point
 - `src/` - Source code directory
-  - `calculator.py` - Core calculation logic
-  - `game_data.py` - Game data constants and formulas
-  - `gui.py` - User interface components
+  - `calculator.py` - Core calculation logic for product profitability
+  - `game_data.py` - Game data constants, effects, and formulas
+  - `gui.py` - User interface components and application logic
+  - `customer_data.py` - Customer data management utilities
 - `test_framework.py` - Testing framework for documenting in-game results
 - `data_analyzer.py` - Data analysis tool for improving calculator accuracy
+- `customer_data.json` - Local database file for customer information (not tracked in git)
+
+## Development
+
+This application is regularly updated with new features and improved accuracy as more in-game data is collected. The software models the in-game economy based on extensive testing and analysis.
+
+### Contributing
+
+Contributions are welcome! If you'd like to contribute, please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Submit a pull request with a clear description of your changes
 
 ## Notes
 
-This calculator attempts to accurately model the in-game economy based on observations and testing. The formulas and special cases are regularly updated as more data is collected.
+This business management suite attempts to accurately model the in-game economy based on observations and testing. The formulas and special cases are regularly updated as more data is collected.
 
 ## License
 
-MIT
+MIT License
+
+## Acknowledgments
+
+- Schedule I game developers for creating an engaging business simulation
+- Community members who have contributed test data and feedback

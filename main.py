@@ -1,13 +1,14 @@
 """
-Schedule I Profit Calculator
+Schedule I Enterprise Suite
 Main entry point for the application.
+Copyright © 2025 Kibah Corps. All rights reserved.
 """
 
 import tkinter as tk
 from src.gui import ScheduleICalculatorApp
 
 def main():
-    """Launch the Schedule I Profit Calculator application"""
+    """Launch the Schedule I Enterprise Suite application"""
     root = tk.Tk()
     
     # Try to fix ttk theme issues by setting a more compatible base theme first

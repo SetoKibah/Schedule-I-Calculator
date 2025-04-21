@@ -1,10 +1,17 @@
 """
-Schedule I Profit Calculator GUI
+Schedule I Enterprise Suite
 A user interface for tracking and comparing drug mixes in Schedule I.
+Copyright © 2025 Kibah Corps. All rights reserved.
 """
 
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
+import json
+import os
+import requests
+from bs4 import BeautifulSoup
+import re
+import datetime
 from src.calculator import calculate_profit, compare_mixes, get_effects_from_mixers
 from src.game_data import BASE_MARKET_VALUES, MARIJUANA_STRAINS, MIXERS, EFFECTS, RECIPES
 
@@ -12,7 +19,7 @@ from src.game_data import BASE_MARKET_VALUES, MARIJUANA_STRAINS, MIXERS, EFFECTS
 class ScheduleICalculatorApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Schedule I Profit Calculator")
+        self.root.title("Schedule I Enterprise Suite")
         self.root.geometry("900x700")
         self.root.resizable(True, True)
         self.root.minsize(800, 600)  # Set minimum window size
@@ -21,6 +28,12 @@ class ScheduleICalculatorApp:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=0)  # Status bar row
+        
+        # Data file paths
+        self.customer_data_file = "customer_data.json"
+        
+        # Load customer data
+        self.customer_data = self.load_customer_data()
         
         # Setup custom theme with dark green to light green colors
         self.setup_theme()
@@ -37,12 +50,14 @@ class ScheduleICalculatorApp:
         self.compare_tab = ttk.Frame(self.tab_control)
         self.top_recipes_tab = ttk.Frame(self.tab_control)
         self.data_tab = ttk.Frame(self.tab_control)
+        self.customers_tab = ttk.Frame(self.tab_control)  # New customers tab
         
         self.tab_control.add(self.calculator_tab, text="Calculator")
         self.tab_control.add(self.recipe_tab, text="Recipes")
         self.tab_control.add(self.compare_tab, text="Compare")
         self.tab_control.add(self.top_recipes_tab, text="Top Recipes")
         self.tab_control.add(self.data_tab, text="Game Data")
+        self.tab_control.add(self.customers_tab, text="Customers")  # Add customers tab
         
         self.tab_control.pack(expand=1, fill="both")
         
@@ -65,12 +80,17 @@ class ScheduleICalculatorApp:
         self.setup_compare_tab()
         self.setup_top_recipes_tab()
         self.setup_data_tab()
+        self.setup_customers_tab()  # Initialize the new customers tab
         
         # Bind tab change event to update status bar
         self.tab_control.bind("<<NotebookTabChanged>>", self.update_status_on_tab_change)
         
         # Store user-created mixes
         self.user_mixes = []
+        
+        # Custom sort state to track sorting order
+        self.customer_sort_column = None
+        self.customer_sort_reverse = False
     
     def setup_theme(self):
         """Setup custom dark green to light green theme"""
@@ -109,10 +129,8 @@ class ScheduleICalculatorApp:
                             font=self.body_font,
                             relief=tk.RAISED)
         self.style.map("TButton", 
-                      background=[('active', self.accent_green), ('pressed', self.dark_green)],
+                      background=[('active', self.accent_green), ('pressed', self.mid_green)],
                       foreground=[('active', self.text_color), ('pressed', self.text_color)])
-        
-        # Notebook (tabs)
         self.style.configure("TNotebook", background=self.dark_green, borderwidth=0)
         self.style.configure("TNotebook.Tab", 
                             background=self.mid_green, 
@@ -1290,12 +1308,1353 @@ class ScheduleICalculatorApp:
             self.status_var.set("Top Recipes Tab: Find the most profitable recipes")
         elif (selected_tab == "Game Data"):
             self.status_var.set("Game Data Tab: Browse all game items, effects, and values")
+        elif (selected_tab == "Customers"):
+            self.status_var.set(f"Customers Tab: {len(self.customer_data.get('customers', []))} customers in database")
         else:
             self.status_var.set(f"Selected Tab: {selected_tab}")
             
     def update_status(self, message):
         """Update the status bar with a custom message"""
         self.status_var.set(message)
+
+    def load_customer_data(self):
+        """Load existing customer data from file"""
+        if os.path.exists(self.customer_data_file):
+            try:
+                with open(self.customer_data_file, 'r') as f:
+                    return json.load(f)
+            except json.JSONDecodeError:
+                return {"customers": []}
+        return {"customers": []}
+    
+    def save_customer_data(self):
+        """Save customer data to file"""
+        with open(self.customer_data_file, 'w') as f:
+            json.dump(self.customer_data, f, indent=4)
+        messagebox.showinfo("Success", "Customer data saved successfully!")
+    
+    def setup_customers_tab(self):
+        """Setup the Customers tab for viewing and managing customer data"""
+        frame = ttk.Frame(self.customers_tab, padding="10")
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Split frame into left and right sections
+        left_frame = ttk.Frame(frame)
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        
+        right_frame = ttk.Frame(frame)
+        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
+        
+        # Left panel (customer list and filters)
+        ttk.Label(left_frame, text="Customers:", style="Subtitle.TLabel").pack(anchor=tk.W, pady=(0, 5))
+        
+        # Filter controls
+        filter_frame = ttk.Frame(left_frame)
+        filter_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(filter_frame, text="Search:").pack(side=tk.LEFT, padx=5)
+        self.customer_search_var = tk.StringVar()
+        search_entry = ttk.Entry(filter_frame, textvariable=self.customer_search_var, width=20)
+        search_entry.pack(side=tk.LEFT, padx=5)
+        search_entry.bind("<KeyRelease>", self.filter_customers)
+        
+        # Region filter
+        ttk.Label(filter_frame, text="Region:").pack(side=tk.LEFT, padx=(10, 5))
+        self.customer_region_var = tk.StringVar(value="All")
+        region_combo = ttk.Combobox(filter_frame, textvariable=self.customer_region_var, width=15, state="readonly")
+        region_combo['values'] = ["All"] + self.get_unique_regions()
+        region_combo.pack(side=tk.LEFT, padx=5)
+        region_combo.bind("<<ComboboxSelected>>", self.filter_customers)
+        
+        # Standards filter
+        ttk.Label(filter_frame, text="Standards:").pack(side=tk.LEFT, padx=(10, 5))
+        self.customer_standards_var = tk.StringVar(value="All")
+        standards_combo = ttk.Combobox(filter_frame, textvariable=self.customer_standards_var, width=10, state="readonly")
+        standards_combo['values'] = ["All", "Low", "Medium", "High"]
+        standards_combo.pack(side=tk.LEFT, padx=5)
+        standards_combo.bind("<<ComboboxSelected>>", self.filter_customers)
+        
+        # Effects filter
+        ttk.Label(filter_frame, text="Effect:").pack(side=tk.LEFT, padx=(10, 5))
+        self.customer_effect_var = tk.StringVar(value="All")
+        effects_combo = ttk.Combobox(filter_frame, textvariable=self.customer_effect_var, width=15, state="readonly")
+        effects_combo['values'] = ["All"] + sorted(list(EFFECTS.keys()))
+        effects_combo.pack(side=tk.LEFT, padx=5)
+        effects_combo.bind("<<ComboboxSelected>>", self.filter_customers)
+        
+        # Customer list
+        list_frame = ttk.Frame(left_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        columns = ("Name", "Region", "Standards", "Favorite Effects")
+        self.customer_tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=20)
+        
+        # Configure columns
+        self.customer_tree.column("Name", width=120)
+        self.customer_tree.column("Region", width=100)
+        self.customer_tree.column("Standards", width=80)
+        self.customer_tree.column("Favorite Effects", width=200)
+        
+        # Add headings with sort functionality
+        for col in columns:
+            self.customer_tree.heading(col, text=col, command=lambda c=col: self.sort_customers_by_column(c))
+        
+        # Add scrollbar
+        tree_scroll = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.customer_tree.yview)
+        self.customer_tree.configure(yscrollcommand=tree_scroll.set)
+        
+        # Layout
+        self.customer_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Bind selection event to show details
+        self.customer_tree.bind("<<TreeviewSelect>>", self.show_customer_details)
+        
+        # List actions
+        list_actions_frame = ttk.Frame(left_frame)
+        list_actions_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Button(list_actions_frame, text="Add New", command=self.create_new_customer).pack(side=tk.LEFT, padx=5)
+        ttk.Button(list_actions_frame, text="Delete", command=self.delete_customer).pack(side=tk.LEFT, padx=5)
+        ttk.Button(list_actions_frame, text="Refresh", command=self.refresh_customer_list).pack(side=tk.LEFT, padx=5)
+        
+        # Right panel (customer details)
+        ttk.Label(right_frame, text="Customer Details:", style="Subtitle.TLabel").pack(anchor=tk.W, pady=(0, 5))
+        
+        # Customer editor
+        details_frame = ttk.Frame(right_frame)
+        details_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Basic info
+        basic_frame = ttk.LabelFrame(details_frame, text="Basic Information")
+        basic_frame.pack(fill=tk.X, pady=5)
+        
+        info_grid = ttk.Frame(basic_frame)
+        info_grid.pack(fill=tk.X, padx=10, pady=5)
+        
+        # Name, Region, Standards
+        ttk.Label(info_grid, text="Name:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=2)
+        self.customer_name_var = tk.StringVar()
+        ttk.Entry(info_grid, textvariable=self.customer_name_var, width=30).grid(row=0, column=1, sticky=tk.W, padx=5, pady=2)
+        
+        ttk.Label(info_grid, text="Region:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
+        self.customer_region_edit_var = tk.StringVar()
+        ttk.Entry(info_grid, textvariable=self.customer_region_edit_var, width=30).grid(row=1, column=1, sticky=tk.W, padx=5, pady=2)
+        
+        ttk.Label(info_grid, text="Standards:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=2)
+        self.customer_standards_edit_var = tk.StringVar()
+        standards_combo = ttk.Combobox(info_grid, textvariable=self.customer_standards_edit_var, width=15, values=["Low", "Medium", "High"])
+        standards_combo.grid(row=2, column=1, sticky=tk.W, padx=5, pady=2)
+        
+        # Favorite effects
+        effects_frame = ttk.LabelFrame(details_frame, text="Favorite Effects")
+        effects_frame.pack(fill=tk.X, pady=5)
+        
+        self.customer_effects_text = scrolledtext.ScrolledText(effects_frame, height=3, width=40, wrap=tk.WORD)
+        self.customer_effects_text.pack(fill=tk.X, padx=10, pady=5)
+        self._configure_scrolledtext(self.customer_effects_text)
+        
+        # Residency and work
+        locations_frame = ttk.LabelFrame(details_frame, text="Locations")
+        locations_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(locations_frame, text="Residency:").pack(anchor=tk.W, padx=10, pady=(5, 0))
+        self.customer_residency_text = scrolledtext.ScrolledText(locations_frame, height=2, width=40, wrap=tk.WORD)
+        self.customer_residency_text.pack(fill=tk.X, padx=10, pady=5)
+        self._configure_scrolledtext(self.customer_residency_text)
+        
+        ttk.Label(locations_frame, text="Work:").pack(anchor=tk.W, padx=10, pady=(5, 0))
+        self.customer_work_text = scrolledtext.ScrolledText(locations_frame, height=2, width=40, wrap=tk.WORD)
+        self.customer_work_text.pack(fill=tk.X, padx=10, pady=5)
+        self._configure_scrolledtext(self.customer_work_text)
+        
+        # Relations
+        relations_frame = ttk.LabelFrame(details_frame, text="Relations")
+        relations_frame.pack(fill=tk.X, pady=5)
+        
+        self.customer_relations_text = scrolledtext.ScrolledText(relations_frame, height=3, width=40, wrap=tk.WORD)
+        self.customer_relations_text.pack(fill=tk.X, padx=10, pady=5)
+        self._configure_scrolledtext(self.customer_relations_text)
+        
+        # Notes
+        notes_frame = ttk.LabelFrame(details_frame, text="Notes")
+        notes_frame.pack(fill=tk.X, pady=5)
+        
+        self.customer_notes_text = scrolledtext.ScrolledText(notes_frame, height=3, width=40, wrap=tk.WORD)
+        self.customer_notes_text.pack(fill=tk.X, padx=10, pady=5)
+        self._configure_scrolledtext(self.customer_notes_text)
+        
+        # Action buttons
+        action_frame = ttk.Frame(details_frame)
+        action_frame.pack(fill=tk.X, pady=10)
+        
+        ttk.Button(action_frame, text="Save Changes", command=self.save_customer).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(action_frame, text="Clear Form", command=self.clear_customer_form).pack(side=tk.RIGHT, padx=5)
+        
+        # Wiki importer section
+        importer_frame = ttk.LabelFrame(right_frame, text="Wiki Data Import")
+        importer_frame.pack(fill=tk.X, pady=10)
+        
+        # URL input
+        url_frame = ttk.Frame(importer_frame)
+        url_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        ttk.Label(url_frame, text="Wiki URL:").pack(side=tk.LEFT, padx=5)
+        self.wiki_url_var = tk.StringVar()
+        ttk.Entry(url_frame, textvariable=self.wiki_url_var, width=50).pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        ttk.Button(url_frame, text="Fetch", command=self.fetch_customer_data).pack(side=tk.LEFT, padx=5)
+        
+        # Bulk import controls
+        bulk_frame = ttk.Frame(importer_frame)
+        bulk_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        ttk.Label(bulk_frame, text="Bulk Import:").pack(side=tk.LEFT, padx=5)
+        ttk.Button(bulk_frame, text="Import All Customers", command=self.import_all_customers).pack(side=tk.LEFT, padx=5)
+        
+        # Initialize the customer list
+        self.refresh_customer_list()
+        
+        # Update status bar when entering this tab
+        self.update_status(f"Customer Database: {len(self.customer_data.get('customers', []))} customers loaded")
+        
+    def get_unique_regions(self):
+        """Get a list of unique regions from the customer data"""
+        regions = set()
+        for customer in self.customer_data.get("customers", []):
+            if customer.get("region"):
+                regions.add(customer.get("region"))
+        return sorted(list(regions))
+    
+    def refresh_customer_list(self):
+        """Refresh the customer list view with all customers"""
+        # Clear current items
+        for item in self.customer_tree.get_children():
+            self.customer_tree.delete(item)
+        
+        # Add all customers
+        for i, customer in enumerate(self.customer_data.get("customers", [])):
+            self.customer_tree.insert("", tk.END, iid=str(i), values=(
+                customer.get("name", "Unknown"),
+                customer.get("region", ""),
+                customer.get("standards", ""),
+                ", ".join(customer.get("favorite_effects", []))
+            ))
+            
+        # Update region filter dropdown values
+        # Instead of using winfo_descendants(), we'll directly find the combo box by traversing
+        # the widget hierarchy in a more compatible way
+        try:
+            region_combo = None
+            # Find all the children of the customers tab
+            for child in self.customers_tab.winfo_children():
+                # Look in each frame for the filter controls
+                if isinstance(child, ttk.Frame):
+                    for subchild in child.winfo_children():
+                        if isinstance(subchild, ttk.Frame):
+                            # This might be our filter frame
+                            for filter_child in subchild.winfo_children():
+                                # Check if this is a combobox with our region variable
+                                if isinstance(filter_child, ttk.Combobox):
+                                    try:
+                                        if filter_child["textvariable"] == str(self.customer_region_var):
+                                            region_combo = filter_child
+                                            break
+                                    except (KeyError, AttributeError):
+                                        continue
+            
+            # If we found it, update its values
+            if region_combo:
+                region_combo["values"] = ["All"] + self.get_unique_regions()
+        except Exception as e:
+            print(f"Error updating region combobox: {e}")
+            
+        # Update status
+        self.update_status(f"Customer Database: {len(self.customer_data.get('customers', []))} customers loaded")
+    
+    def filter_customers(self, event=None):
+        """Filter the customer list based on the filter criteria"""
+        search_text = self.customer_search_var.get().lower()
+        region_filter = self.customer_region_var.get()
+        standards_filter = self.customer_standards_var.get()
+        effect_filter = self.customer_effect_var.get()
+        
+        # Clear current items
+        for item in self.customer_tree.get_children():
+            self.customer_tree.delete(item)
+        
+        # Add filtered customers
+        count = 0
+        for i, customer in enumerate(self.customer_data.get("customers", [])):
+            # Check if customer matches all filters
+            if search_text and not (
+                search_text in customer.get("name", "").lower() or
+                search_text in customer.get("region", "").lower() or
+                search_text in ", ".join(customer.get("relations", [])).lower()
+            ):
+                continue
+            
+            if region_filter != "All" and customer.get("region") != region_filter:
+                continue
+                
+            if standards_filter != "All" and customer.get("standards") != standards_filter:
+                continue
+                
+            if effect_filter != "All" and effect_filter not in customer.get("favorite_effects", []):
+                continue
+            
+            # Add to treeview
+            self.customer_tree.insert("", tk.END, iid=str(i), values=(
+                customer.get("name", "Unknown"),
+                customer.get("region", ""),
+                customer.get("standards", ""),
+                ", ".join(customer.get("favorite_effects", []))
+            ))
+            count += 1
+        
+        # Update status with filter results
+        filters_applied = []
+        if search_text:
+            filters_applied.append(f"search='{search_text}'")
+        if region_filter != "All":
+            filters_applied.append(f"region='{region_filter}'")
+        if standards_filter != "All":
+            filters_applied.append(f"standards='{standards_filter}'")
+        if effect_filter != "All":
+            filters_applied.append(f"effect='{effect_filter}'")
+            
+        if filters_applied:
+            self.update_status(f"Showing {count} customers matching {', '.join(filters_applied)}")
+        else:
+            self.update_status(f"Showing all {count} customers")
+    
+    def show_customer_details(self, event=None):
+        """Show details of the selected customer"""
+        selected = self.customer_tree.selection()
+        if not selected:
+            return
+            
+        try:
+            # Get the selected customer index
+            customer_index = int(selected[0])
+            customer = self.customer_data["customers"][customer_index]
+            
+            # Fill in details form
+            self.customer_name_var.set(customer.get("name", ""))
+            self.customer_region_edit_var.set(customer.get("region", ""))
+            self.customer_standards_edit_var.set(customer.get("standards", ""))
+            
+            # Clear and populate text widgets
+            self.customer_effects_text.delete(1.0, tk.END)
+            self.customer_effects_text.insert(tk.END, ", ".join(customer.get("favorite_effects", [])))
+            
+            self.customer_residency_text.delete(1.0, tk.END)
+            self.customer_residency_text.insert(tk.END, customer.get("residency", ""))
+            
+            self.customer_work_text.delete(1.0, tk.END)
+            self.customer_work_text.insert(tk.END, customer.get("work", ""))
+            
+            self.customer_relations_text.delete(1.0, tk.END)
+            self.customer_relations_text.insert(tk.END, ", ".join(customer.get("relations", [])))
+            
+            self.customer_notes_text.delete(1.0, tk.END)
+            self.customer_notes_text.insert(tk.END, customer.get("notes", ""))
+            
+            # Update status
+            self.update_status(f"Viewing customer: {customer.get('name')}")
+            
+        except (IndexError, ValueError) as e:
+            # Handle errors in customer lookup
+            print(f"Error showing customer details: {e}")
+    
+    def create_new_customer(self):
+        """Create a new customer entry"""
+        # Clear all form fields
+        self.clear_customer_form()
+        
+        # Try to find and set focus to the name field
+        try:
+            # Look through frames to find the customer name entry
+            for child in self.customers_tab.winfo_children():
+                if isinstance(child, ttk.Frame):
+                    for frame in child.winfo_children():
+                        if isinstance(frame, ttk.Frame):
+                            for detail_frame in frame.winfo_children():
+                                if isinstance(detail_frame, ttk.LabelFrame):
+                                    for grid_frame in detail_frame.winfo_children():
+                                        for widget in grid_frame.winfo_children():
+                                            if isinstance(widget, ttk.Entry):
+                                                try:
+                                                    if widget.cget("textvariable") == str(self.customer_name_var):
+                                                        widget.focus_set()
+                                                        break
+                                                except (KeyError, AttributeError):
+                                                    continue
+        except Exception as e:
+            print(f"Error setting focus: {e}")
+            
+        # Update status
+        self.update_status("Creating new customer - fill in details and click Save")
+    
+    def clear_customer_form(self):
+        """Clear all form fields"""
+        self.customer_name_var.set("")
+        self.customer_region_edit_var.set("")
+        self.customer_standards_edit_var.set("")
+        
+        self.customer_effects_text.delete(1.0, tk.END)
+        self.customer_residency_text.delete(1.0, tk.END)
+        self.customer_work_text.delete(1.0, tk.END)
+        self.customer_relations_text.delete(1.0, tk.END)
+        self.customer_notes_text.delete(1.0, tk.END)
+        
+        # Clear selection in treeview
+        self.customer_tree.selection_remove(self.customer_tree.selection())
+    
+    def save_customer(self):
+        """Save the current customer data"""
+        name = self.customer_name_var.get().strip()
+        if not name:
+            messagebox.showerror("Error", "Customer name is required")
+            return
+        
+        # Get all form data
+        customer_data = {
+            "name": name,
+            "region": self.customer_region_edit_var.get().strip(),
+            "standards": self.customer_standards_edit_var.get().strip(),
+            "favorite_effects": [e.strip() for e in self.customer_effects_text.get(1.0, tk.END).strip().split(",") if e.strip()],
+            "residency": self.customer_residency_text.get(1.0, tk.END).strip(),
+            "work": self.customer_work_text.get(1.0, tk.END).strip(),
+            "relations": [r.strip() for r in self.customer_relations_text.get(1.0, tk.END).strip().split(",") if r.strip()],
+            "notes": self.customer_notes_text.get(1.0, tk.END).strip()
+        }
+        
+        # Check if we're updating an existing customer
+        selected = self.customer_tree.selection()
+        if selected:
+            # Update existing customer
+            try:
+                customer_index = int(selected[0])
+                self.customer_data["customers"][customer_index] = customer_data
+                self.update_status(f"Updated customer: {name}")
+            except (IndexError, ValueError):
+                # Add as new if index lookup fails
+                self.customer_data.setdefault("customers", []).append(customer_data)
+                self.update_status(f"Added new customer: {name}")
+        else:
+            # Add new customer
+            self.customer_data.setdefault("customers", []).append(customer_data)
+            self.update_status(f"Added new customer: {name}")
+        
+        # Save to file and refresh the list
+        self.save_customer_data()
+        self.refresh_customer_list()
+    
+    def delete_customer(self):
+        """Delete the selected customer"""
+        selected = self.customer_tree.selection()
+        if not selected:
+            messagebox.showinfo("Info", "Please select a customer to delete")
+            return
+            
+        try:
+            customer_index = int(selected[0])
+            customer = self.customer_data["customers"][customer_index]
+            
+            if messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete {customer.get('name')}?"):
+                # Remove from data
+                del self.customer_data["customers"][customer_index]
+                
+                # Save and refresh
+                self.save_customer_data()
+                self.refresh_customer_list()
+                
+                # Clear form and update status
+                self.clear_customer_form()
+                self.update_status(f"Deleted customer: {customer.get('name')}")
+                
+        except (IndexError, ValueError) as e:
+            print(f"Error deleting customer: {e}")
+    
+    def fetch_customer_data(self):
+        """Fetch customer data from the provided wiki URL"""
+        url = self.wiki_url_var.get().strip()
+        if not url:
+            messagebox.showerror("Error", "Please enter a valid URL")
+            return
+            
+        try:
+            self.update_status(f"Fetching customer data from {url}...")
+            self.root.update()
+            
+            # Request the page with proper headers to avoid potential blocks
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            
+            # Store HTML content for debugging
+            html_content = response.text
+            
+            # Debug message
+            print(f"Fetched page with status code: {response.status_code}, content length: {len(html_content)} bytes")
+            
+            # Parse with BeautifulSoup - use html.parser instead of the default
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # Debug - print title to verify we have a valid page
+            print(f"Page title: {soup.title.text if soup.title else 'No title found'}")
+            
+            # Extract customer name from title
+            title = soup.find('title')
+            name = title.text.split('|')[0].strip() if title else "Unknown"
+            print(f"Extracted name: {name}")
+            
+            # Skip if this is the category page and not an actual customer
+            if "Category:Customers" in name:
+                messagebox.showerror("Error", "The URL provided is the Category page. Please use a specific customer page URL.")
+                self.update_status("Error: Category page URL detected, not a customer page")
+                return
+            
+            # Try different methods for data extraction
+            customer_data = self._extract_customer_data_method1(soup)
+            
+            # If first method fails, try alternate approach
+            if not customer_data["region"] and not customer_data["standards"] and not customer_data["favorite_effects"]:
+                print("First extraction method failed, trying alternate method...")
+                customer_data = self._extract_customer_data_method2(soup)
+            
+            # Populate form with extracted data
+            self.customer_name_var.set(name)
+            self.customer_region_edit_var.set(customer_data["region"])
+            self.customer_standards_edit_var.set(customer_data["standards"])
+            
+            self.customer_effects_text.delete(1.0, tk.END)
+            self.customer_effects_text.insert(tk.END, ", ".join(customer_data["favorite_effects"]))
+            
+            self.customer_residency_text.delete(1.0, tk.END)
+            self.customer_residency_text.insert(tk.END, customer_data["residency"])
+            
+            self.customer_work_text.delete(1.0, tk.END)
+            self.customer_work_text.insert(tk.END, customer_data["work"])
+            
+            self.customer_relations_text.delete(1.0, tk.END)
+            self.customer_relations_text.insert(tk.END, ", ".join(customer_data["relations"]))
+            
+            # Add note about the source
+            self.customer_notes_text.delete(1.0, tk.END)
+            self.customer_notes_text.insert(tk.END, f"Imported from {url} on {datetime.datetime.now().strftime('%Y-%m-%d')}")
+            
+            self.update_status(f"Successfully fetched data for {name}")
+            
+        except Exception as e:
+            self.update_status(f"Error fetching customer data: {str(e)}")
+            messagebox.showerror("Error", f"Failed to fetch customer data: {str(e)}")
+            print(f"Exception while fetching customer data: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _extract_customer_data_method1(self, soup):
+        """Extract customer data using method 1 - looking for div elements"""
+        customer_data = {
+            "region": "",
+            "standards": "",
+            "favorite_effects": [],
+            "relations": [],
+            "residency": "",
+            "work": ""
+        }
+        
+        # Extract region from infobox
+        region_label = soup.find('div', string=lambda s: s and "Region" in s)
+        if region_label:
+            region_div = region_label.find_next_sibling('div')
+            if region_div:
+                customer_data["region"] = region_div.text.strip()
+                print(f"Found region: {customer_data['region']}")
+        
+        # Extract standards level
+        standards_label = soup.find('div', string=lambda s: s and "Standards" in s)
+        if standards_label:
+            standards_div = standards_label.find_next_sibling('div')
+            if standards_div:
+                standards_text = standards_div.text.strip()
+                # Extract just the level (Low, Medium, High)
+                if "Low" in standards_text:
+                    customer_data["standards"] = "Low"
+                elif "Medium" in standards_text:
+                    customer_data["standards"] = "Medium"
+                elif "High" in standards_text:
+                    customer_data["standards"] = "High"
+                print(f"Found standards: {customer_data['standards']}")
+        
+        # Extract favorite effects
+        effects_label = soup.find('div', string=lambda s: s and ("Favourite Effects" in s or "Favorite Effects" in s))
+        if effects_label:
+            print("Found effects label")
+            # Get all sibling divs until we reach the next section
+            current = effects_label.find_next_sibling('div')
+            while current and current.name == 'div' and not current.find('div', recursive=False):
+                effect_text = current.text.strip()
+                if effect_text and effect_text not in ["Relations", "Region", "Standards"]:
+                    customer_data["favorite_effects"].append(effect_text)
+                    print(f"Added effect: {effect_text}")
+                current = current.find_next_sibling('div')
+        
+        # Extract relations
+        relations_label = soup.find('div', string=lambda s: s and "Relations" in s)
+        if relations_label:
+            print("Found relations label")
+            # Get all sibling divs until we reach the next section
+            current = relations_label.find_next_sibling('div')
+            while current and current.name == 'div' and not current.find('div', recursive=False):
+                relation_text = current.text.strip()
+                if relation_text and relation_text not in ["Region", "Standards"]:
+                    customer_data["relations"].append(relation_text)
+                    print(f"Added relation: {relation_text}")
+                current = current.find_next_sibling('div')
+        
+        # Extract residency and work from section headings
+        residency_heading = soup.find(['h2', 'h3', 'h4'], string=lambda s: s and "Residency" in s)
+        if residency_heading:
+            print("Found residency heading")
+            # Try to find the paragraph after the heading
+            next_elem = residency_heading.find_next()
+            while next_elem and next_elem.name != 'h2' and next_elem.name != 'h3' and next_elem.name != 'h4':
+                if next_elem.name == 'p':
+                    customer_data["residency"] = next_elem.text.strip()
+                    print(f"Found residency text: {customer_data['residency'][:30]}...")
+                    break
+                next_elem = next_elem.find_next()
+        
+        work_heading = soup.find(['h2', 'h3', 'h4'], string=lambda s: s and "Work" in s)
+        if work_heading:
+            print("Found work heading")
+            # Try to find the paragraph after the heading
+            next_elem = work_heading.find_next()
+            while next_elem and next_elem.name != 'h2' and next_elem.name != 'h3' and next_elem.name != 'h4':
+                if next_elem.name == 'p':
+                    customer_data["work"] = next_elem.text.strip()
+                    print(f"Found work text: {customer_data['work'][:30]}...")
+                    break
+                next_elem = next_elem.find_next()
+        
+        return customer_data
+
+    def _extract_customer_data_method2(self, soup):
+        """Extract customer data using method 2 - using more general selectors"""
+        customer_data = {
+            "region": "",
+            "standards": "",
+            "favorite_effects": [],
+            "relations": [],
+            "residency": "",
+            "work": ""
+        }
+        
+        # Look for data in any element with appropriate section indicators
+        
+        # Try to find region in any element
+        region_elements = soup.find_all(string=lambda s: s and "Region:" in s)
+        for element in region_elements:
+            # Look for region value after the "Region:" label
+            text = element.strip()
+            if ":" in text:
+                region_value = text.split(":", 1)[1].strip()
+                if region_value:
+                    customer_data["region"] = region_value
+                    print(f"Method 2 - Found region: {customer_data['region']}")
+                    break
+        
+        # Try to find standards in any element
+        standards_elements = soup.find_all(string=lambda s: s and "Standards:" in s)
+        for element in standards_elements:
+            # Look for standards value
+            text = element.strip()
+            if "Low" in text:
+                customer_data["standards"] = "Low"
+            elif "Medium" in text:
+                customer_data["standards"] = "Medium"
+            elif "High" in text:
+                customer_data["standards"] = "High"
+            if customer_data["standards"]:
+                print(f"Method 2 - Found standards: {customer_data['standards']}")
+                break
+        
+        # Try to find favorite effects
+        effects_elements = soup.find_all(string=lambda s: s and ("Favourite Effects:" in s or "Favorite Effects:" in s))
+        for element in effects_elements:
+            parent = element.parent
+            # Try to find a list or paragraphs after this element
+            effects_list = []
+            
+            # Try for list items first
+            list_items = parent.find_next('ul')
+            if list_items:
+                for item in list_items.find_all('li'):
+                    effects_list.append(item.text.strip())
+                    print(f"Method 2 - Found effect in list: {item.text.strip()}")
+            
+            # If no list, look for comma-separated text after the label
+            if not effects_list:
+                text = element.strip()
+                if ":" in text:
+                    effects_text = text.split(":", 1)[1].strip()
+                    if effects_text:
+                        effects_list = [e.strip() for e in effects_text.split(",") if e.strip()]
+                        print(f"Method 2 - Found effects in text: {effects_list}")
+            
+            if effects_list:
+                customer_data["favorite_effects"] = effects_list
+                break
+        
+        # Try to find relations
+        relations_elements = soup.find_all(string=lambda s: s and "Relations:" in s)
+        for element in relations_elements:
+            parent = element.parent
+            relations_list = []
+            
+            # Try for list items
+            list_items = parent.find_next('ul')
+            if list_items:
+                for item in list_items.find_all('li'):
+                    relations_list.append(item.text.strip())
+                    print(f"Method 2 - Found relation in list: {item.text.strip()}")
+            
+            # If no list, look for comma-separated text
+            if not relations_list:
+                text = element.strip()
+                if ":" in text:
+                    relations_text = text.split(":", 1)[1].strip()
+                    if relations_text:
+                        relations_list = [r.strip() for r in relations_text.split(",") if r.strip()]
+                        print(f"Method 2 - Found relations in text: {relations_list}")
+            
+            if relations_list:
+                customer_data["relations"] = relations_list
+                break
+        
+        # Try to find residency and work in paragraphs
+        # First look for sections by any heading
+        for section_label in ["Residency", "Work"]:
+            # Try to find heading that contains our section label
+            heading_elements = soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5'], string=lambda s: s and section_label in s)
+            
+            if heading_elements:
+                print(f"Method 2 - Found {section_label} heading")
+                for heading in heading_elements:
+                    next_p = heading.find_next('p')
+                    if next_p:
+                        if section_label == "Residency":
+                            customer_data["residency"] = next_p.text.strip()
+                            print(f"Method 2 - Found residency: {customer_data['residency'][:30]}...")
+                        else:  # Work
+                            customer_data["work"] = next_p.text.strip()
+                            print(f"Method 2 - Found work: {customer_data['work'][:30]}...")
+                        break
+        
+        # If still no residency/work, try looking for div sections
+        if not customer_data["residency"]:
+            residency_elements = soup.find_all(string=lambda s: s and "Residency:" in s)
+            for element in residency_elements:
+                text = element.strip()
+                if ":" in text:
+                    residency_text = text.split(":", 1)[1].strip()
+                    if residency_text:
+                        customer_data["residency"] = residency_text
+                        print(f"Method 2 - Found residency from label: {customer_data['residency'][:30]}...")
+                        break
+        
+        if not customer_data["work"]:
+            work_elements = soup.find_all(string=lambda s: s and "Work:" in s)
+            for element in work_elements:
+                text = element.strip()
+                if ":" in text:
+                    work_text = text.split(":", 1)[1].strip()
+                    if work_text:
+                        customer_data["work"] = work_text
+                        print(f"Method 2 - Found work from label: {customer_data['work'][:30]}...")
+                        break
+        
+        return customer_data
+    
+    def import_all_customers(self):
+        """Import all customers from the wiki category page"""
+        # Ask for confirmation
+        if not messagebox.askyesno("Confirm Import", "This will fetch data for all customers from the Schedule 1 wiki. The process may take several minutes. Continue?"):
+            return
+            
+        try:
+            # Create progress window
+            progress_window = tk.Toplevel(self.root)
+            progress_window.title("Importing Customers")
+            progress_window.geometry("600x200")
+            progress_window.transient(self.root)
+            progress_window.grab_set()
+            progress_window.configure(background=self.dark_green)
+            
+            # Progress display
+            ttk.Label(progress_window, text="Fetching customer list...", style="Title.TLabel").pack(pady=(20, 10))
+            
+            # Progress bar
+            progress_var = tk.DoubleVar()
+            progress_bar = ttk.Progressbar(progress_window, variable=progress_var, length=500, mode='determinate')
+            progress_bar.pack(pady=10, padx=20)
+            
+            # Status label
+            status_var = tk.StringVar(value="Connecting to wiki...")
+            status_label = ttk.Label(progress_window, textvariable=status_var, wraplength=550)
+            status_label.pack(pady=10)
+            
+            # Cancel button
+            self.import_cancelled = False
+            cancel_button = ttk.Button(
+                progress_window, 
+                text="Cancel Import", 
+                command=lambda: setattr(self, 'import_cancelled', True)
+            )
+            cancel_button.pack(pady=10)
+            
+            # Update UI
+            progress_window.update()
+            
+            # Get the customer category page
+            status_var.set("Fetching customer list from category page...")
+            progress_window.update()
+            
+            url = "https://schedule-1.fandom.com/wiki/Category:Customers"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Find all customer links - get actual customer links, not the category page
+            customer_links = []
+            category_members = soup.select('.category-page__member-link')
+            
+            for link in category_members:
+                if link.has_attr('href') and "Category:" not in link['href'] and "Template:" not in link['href']:
+                    customer_links.append("https://schedule-1.fandom.com" + link['href'])
+            
+            if not customer_links:
+                progress_window.destroy()
+                messagebox.showerror("Error", "No customer links found on the category page")
+                return
+            
+            # Progress initialization
+            total_customers = len(customer_links)
+            new_customers = []
+            
+            # Ask if user wants to replace or append data
+            if self.customer_data.get("customers", []):
+                if messagebox.askyesno("Import Options", "Do you want to replace the existing customer database? Click 'No' to append new customers."):
+                    self.customer_data["customers"] = []
+            
+            # Process each customer
+            for i, link in enumerate(customer_links):
+                if self.import_cancelled:
+                    break
+                
+                try:
+                    # Update progress
+                    progress_var.set((i / total_customers) * 100)
+                    customer_name = link.split('/')[-1].replace('_', ' ')
+                    status_var.set(f"Processing {i+1} of {total_customers}: {customer_name}")
+                    progress_window.update()
+                    
+                    # Request the customer page
+                    response = requests.get(link, headers=headers)
+                    response.raise_for_status()
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    
+                    # Extract customer name from title
+                    title = soup.find('title')
+                    name = title.text.split('|')[0].strip() if title else customer_name
+                    
+                    # Skip if this is a category page, template, or redirection
+                    if ("Category:" in name or "Template:" in name or 
+                        soup.find('div', class_='mw-redirectedfrom')):
+                        status_var.set(f"Skipping {name} - not a customer page")
+                        progress_window.update()
+                        continue
+                    
+                    # Check if customer already exists - skip if it does
+                    if any(c.get("name") == name for c in self.customer_data.get("customers", [])):
+                        status_var.set(f"Skipping {name} - already in database")
+                        progress_window.update()
+                        continue
+                    
+                    # Try all extraction methods with debug output for each customer
+                    customer_data = self._extract_customer_data_comprehensive(soup, name, link)
+                    
+                    # Add to the new customers list if we got any meaningful data
+                    if (customer_data["region"] or customer_data["standards"] or 
+                        customer_data["favorite_effects"] or customer_data["residency"] or 
+                        customer_data["work"]):
+                        new_customers.append(customer_data)
+                        status_var.set(f"Added {name} with {len(customer_data['favorite_effects'])} effects")
+                    else:
+                        status_var.set(f"Skipping {name} - no data found")
+                    progress_window.update()
+                    
+                except Exception as e:
+                    status_var.set(f"Error processing {link}: {str(e)}")
+                    progress_window.update()
+                    import traceback
+                    traceback.print_exc()
+            
+            # Close progress window
+            progress_window.destroy()
+            
+            if self.import_cancelled:
+                messagebox.showinfo("Import Cancelled", "Customer import cancelled. Some customers may have been imported.")
+            else:
+                # Add all new customers
+                self.customer_data.setdefault("customers", []).extend(new_customers)
+                
+                # Save and refresh
+                self.save_customer_data()
+                self.refresh_customer_list()
+                
+                messagebox.showinfo("Import Complete", f"Successfully imported {len(new_customers)} customers")
+                self.update_status(f"Imported {len(new_customers)} customers from wiki")
+            
+        except Exception as e:
+            # Close progress window if it exists
+            try:
+                progress_window.destroy()
+            except:
+                pass
+                
+            messagebox.showerror("Import Error", f"An error occurred during import: {str(e)}")
+            self.update_status("Customer import failed")
+            import traceback
+            traceback.print_exc()
+
+    def _extract_customer_data_comprehensive(self, soup, name, url):
+        """A comprehensive extraction method that tries multiple approaches to extract customer data"""
+        customer_data = {
+            "name": name,
+            "region": "",
+            "standards": "",
+            "favorite_effects": [],
+            "relations": [],
+            "residency": "",
+            "work": "",
+            "notes": f"Imported from {url} on {datetime.datetime.now().strftime('%Y-%m-%d')}"
+        }
+        
+        print(f"\n--- EXTRACTING DATA FOR {name} ---")
+        
+        # Try to find the article content
+        article = soup.find('article', class_='WikiaArticle') or soup.find('div', class_='mw-parser-output')
+        if not article:
+            print(f"Warning: Could not find article content for {name}")
+            # Use whole page if article section not found
+            article = soup
+        
+        # APPROACH 1: Look for infobox-style data in tables
+        try:
+            # Modern wikis often use tables for infoboxes
+            print("Trying extraction from tables...")
+            tables = article.find_all('table')
+            for table in tables:
+                rows = table.find_all('tr')
+                for row in rows:
+                    # Try to find header and value cells
+                    header_cell = row.find('th')
+                    value_cell = row.find('td')
+                    
+                    if header_cell and value_cell:
+                        header_text = header_cell.get_text().strip().lower()
+                        value_text = value_cell.get_text().strip()
+                        
+                        print(f"Found table row: {header_text} = {value_text}")
+                        
+                        if "region" in header_text:
+                            customer_data["region"] = value_text
+                        elif "standard" in header_text:
+                            if "low" in value_text.lower():
+                                customer_data["standards"] = "Low"
+                            elif "moderate" in value_text.lower() or "medium" in value_text.lower():
+                                customer_data["standards"] = "Moderate"
+                            elif "high" in value_text.lower():
+                                customer_data["standards"] = "High"
+                        elif "effect" in header_text and ("favorite" in header_text or "favourite" in header_text):
+                            effects = self._process_effects_list(value_text)
+                            customer_data["favorite_effects"] = effects
+                        elif "relation" in header_text:
+                            relations = self._process_relations_list(value_text)
+                            customer_data["relations"] = relations
+        except Exception as e:
+            print(f"Error in table extraction: {e}")
+        
+        # APPROACH 2: Look for <div> based infoboxes (common in older Fandom wikis)
+        try:
+            print("Trying extraction from div-based infoboxes...")
+            infobox = article.find('div', class_='portable-infobox') or article.find('aside', class_='portable-infobox')
+            if (infobox):
+                # Extract from portable infobox (modern)
+                for item in infobox.find_all('div', class_='pi-item'):
+                    label = item.find('h3', class_='pi-data-label')
+                    value = item.find('div', class_='pi-data-value')
+                    
+                    if (label and value):
+                        label_text = label.get_text().strip().lower()
+                        value_text = value.get_text().strip()
+                        
+                        print(f"Found infobox item: {label_text} = {value_text}")
+                        
+                        if "region" in label_text:
+                            customer_data["region"] = value_text
+                        elif "standard" in label_text:
+                            if "low" in value_text.lower():
+                                customer_data["standards"] = "Low"
+                            elif "moderate" in value_text.lower() or "medium" in value_text.lower():
+                                customer_data["standards"] = "Moderate"
+                            elif "high" in value_text.lower():
+                                customer_data["standards"] = "High"
+                        elif "effect" in label_text and ("favorite" in label_text or "favourite" in label_text):
+                            effects = self._process_effects_list(value_text)
+                            customer_data["favorite_effects"] = effects
+                        elif "relation" in label_text:
+                            relations = self._process_relations_list(value_text)
+                            customer_data["relations"] = relations
+            
+            # Try older style div infoboxes
+            div_labels = article.find_all('div', class_='label')
+            for label in div_labels:
+                label_text = label.get_text().strip().lower()
+                value_div = label.find_next_sibling('div')
+                
+                if value_div:
+                    value_text = value_div.get_text().strip()
+                    print(f"Found div label: {label_text} = {value_text}")
+                    
+                    if "region" in label_text:
+                        customer_data["region"] = value_text
+                    elif "standard" in label_text:
+                        if "low" in value_text.lower():
+                            customer_data["standards"] = "Low"
+                        elif "moderate" in value_text.lower() or "medium" in value_text.lower():
+                            customer_data["standards"] = "Moderate"
+                        elif "high" in value_text.lower():
+                            customer_data["standards"] = "High"
+                    elif "effect" in label_text and ("favorite" in label_text or "favourite" in label_text):
+                        # Check if it's a list
+                        list_items = value_div.find_all('li')
+                        if list_items:
+                            effects = [li.get_text().strip() for li in list_items]
+                            effects = self._process_effects_list(", ".join(effects))
+                        else:
+                            effects = self._process_effects_list(value_text)
+                        customer_data["favorite_effects"] = effects
+                    elif "relation" in label_text:
+                        # Check if it's a list
+                        list_items = value_div.find_all('li')
+                        if list_items:
+                            relations = [li.get_text().strip() for li in list_items]
+                            relations = self._process_relations_list(", ".join(relations))
+                        else:
+                            relations = self._process_relations_list(value_text)
+                        customer_data["relations"] = relations
+        except Exception as e:
+            print(f"Error in div infobox extraction: {e}")
+        
+        # APPROACH 3: Look for data in bold text followed by regular text
+        try:
+            print("Trying extraction from bold text patterns...")
+            # Find all bold elements
+            bold_elements = article.find_all(['b', 'strong'])
+            for bold in bold_elements:
+                bold_text = bold.get_text().strip().lower()
+                next_element = bold.next_sibling
+                if next_element and isinstance(next_element, str):
+                    value_text = next_element.strip()
+                    if value_text.startswith(':'):
+                        value_text = value_text[1:].strip()
+                    
+                    print(f"Found bold pattern: {bold_text} => {value_text}")
+                    
+                    if "region" in bold_text:
+                        customer_data["region"] = value_text
+                    elif "standard" in bold_text:
+                        if "low" in value_text.lower():
+                            customer_data["standards"] = "Low"
+                        elif "moderate" in value_text.lower() or "medium" in value_text.lower():
+                            customer_data["standards"] = "Moderate"
+                        elif "high" in value_text.lower():
+                            customer_data["standards"] = "High"
+                    elif "effect" in bold_text and ("favorite" in bold_text or "favourite" in bold_text):
+                        effects = self._process_effects_list(value_text)
+                        customer_data["favorite_effects"] = effects
+                    elif "relation" in bold_text:
+                        relations = self._process_relations_list(value_text)
+                        customer_data["relations"] = relations
+        except Exception as e:
+            print(f"Error in bold text extraction: {e}")
+        
+        # APPROACH 4: Try section-based extraction for residency and work
+        try:
+            print("Trying section-based extraction...")
+            headers = article.find_all(['h2', 'h3', 'h4'])
+            for header in headers:
+                header_text = header.get_text().strip().lower()
+                print(f"Found section header: {header_text}")
+                
+                if "residency" in header_text:
+                    # Get the next paragraph
+                    next_p = header.find_next('p')
+                    if next_p:
+                        customer_data["residency"] = next_p.get_text().strip()
+                        print(f"Found residency text: {customer_data['residency'][:30]}...")
+                elif "work" in header_text:
+                    # Get the next paragraph
+                    next_p = header.find_next('p')
+                    if next_p:
+                        customer_data["work"] = next_p.get_text().strip()
+                        print(f"Found work text: {customer_data['work'][:30]}...")
+        except Exception as e:
+            print(f"Error in section extraction: {e}")
+        
+        # APPROACH 5: Look for template-defined data
+        try:
+            print("Trying template data extraction...")
+            # Check for data in specially formatted areas, which might be from templates
+            data_blocks = article.find_all('div', class_='data')
+            for block in data_blocks:
+                # Look for header inside or before the block
+                header = block.find_previous_sibling('div', class_='header') or block.find('div', class_='header')
+                if header:
+                    header_text = header.get_text().strip().lower()
+                    value_text = block.get_text().strip()
+                    
+                    print(f"Found data block: {header_text} = {value_text}")
+                    
+                    if "region" in header_text:
+                        customer_data["region"] = value_text
+                    elif "standard" in header_text:
+                        if "low" in value_text.lower():
+                            customer_data["standards"] = "Low"
+                        elif "moderate" in value_text.lower() or "medium" in value_text.lower():
+                            customer_data["standards"] = "Moderate"
+                        elif "high" in value_text.lower():
+                            customer_data["standards"] = "High"
+                    elif "effect" in header_text and ("favorite" in header_text or "favourite" in header_text):
+                        effects = self._process_effects_list(value_text)
+                        customer_data["favorite_effects"] = effects
+                    elif "relation" in header_text:
+                        relations = self._process_relations_list(value_text)
+                        customer_data["relations"] = relations
+        except Exception as e:
+            print(f"Error in template data extraction: {e}")
+        
+        # APPROACH 6: Direct search for text patterns in the entire content
+        try:
+            print("Trying direct text pattern search...")
+            html_content = str(article)
+            
+            # Look for region data
+            region_match = re.search(r'[Rr]egion\s*[:-]\s*([^<>\n,]+)', html_content)
+            if region_match and not customer_data["region"]:
+                customer_data["region"] = region_match.group(1).strip()
+                print(f"Found region via regex: {customer_data['region']}")
+            
+            # Look for standards data
+            standards_match = re.search(r'[Ss]tandards?\s*[:-]\s*([^<>\n,]+)', html_content)
+            if standards_match and not customer_data["standards"]:
+                standards_text = standards_match.group(1).strip().lower()
+                if "low" in standards_text:
+                    customer_data["standards"] = "Low"
+                elif "moderate" in standards_text or "medium" in standards_text:
+                    customer_data["standards"] = "Moderate"
+                elif "high" in standards_text:
+                    customer_data["standards"] = "High"
+                print(f"Found standards via regex: {customer_data['standards']}")
+            
+            # Look for effects data
+            effects_match = re.search(r'[Ff]av(?:ou|o)rite [Ee]ffects?\s*[:-]\s*([^<>]+?)(?:<|$)', html_content)
+            if effects_match and not customer_data["favorite_effects"]:
+                effects_text = effects_match.group(1).strip()
+                effects = self._process_effects_list(effects_text)
+                customer_data["favorite_effects"] = effects
+                print(f"Found effects via regex: {customer_data['favorite_effects']}")
+            
+            # Look for relations data
+            relations_match = re.search(r'[Rr]elations?\s*[:-]\s*([^<>]+?)(?:<|$)', html_content)
+            if relations_match and not customer_data["relations"]:
+                relations_text = relations_match.group(1).strip()
+                relations = self._process_relations_list(relations_text)
+                customer_data["relations"] = relations
+                print(f"Found relations via regex: {customer_data['relations']}")
+            
+            # Look for residency data
+            if not customer_data["residency"]:
+                residency_match = re.search(r'(?:<h[23]>.*?[Rr]esidency.*?</h[23]>)(.*?)(?:<h[23]>|$)', html_content, re.DOTALL)
+                if residency_match:
+                    residency_html = residency_match.group(1).strip()
+                    # Extract text from paragraph if present
+                    paragraph_match = re.search(r'<p>(.*?)</p>', residency_html, re.DOTALL)
+                    if paragraph_match:
+                        residency_text = paragraph_match.group(1).strip()
+                        # Remove HTML tags
+                        residency_text = re.sub(r'<[^>]+>', '', residency_text)
+                        customer_data["residency"] = residency_text
+                        print(f"Found residency via regex: {customer_data['residency'][:30]}...")
+            
+            # Look for work data
+            if not customer_data["work"]:
+                work_match = re.search(r'(?:<h[23]>.*?[Ww]ork.*?</h[23]>)(.*?)(?:<h[23]>|$)', html_content, re.DOTALL)
+                if work_match:
+                    work_html = work_match.group(1).strip()
+                    # Extract text from paragraph if present
+                    paragraph_match = re.search(r'<p>(.*?)</p>', work_html, re.DOTALL)
+                    if paragraph_match:
+                        work_text = paragraph_match.group(1).strip()
+                        # Remove HTML tags
+                        work_text = re.sub(r'<[^>]+>', '', work_text)
+                        customer_data["work"] = work_text
+                        print(f"Found work via regex: {customer_data['work'][:30]}...")
+        except Exception as e:
+            print(f"Error in direct text search: {e}")
+        
+        # Set default values for any empty fields
+        if not customer_data["region"]:
+            customer_data["region"] = "Not Available"
+            
+        if not customer_data["standards"]:
+            customer_data["standards"] = "Not Available"
+            
+        if not customer_data["favorite_effects"]:
+            customer_data["favorite_effects"] = ["Not Available"]
+            
+        if not customer_data["relations"]:
+            customer_data["relations"] = ["Not Available"]
+            
+        if not customer_data["residency"]:
+            customer_data["residency"] = "Not Available"
+            
+        if not customer_data["work"]:
+            customer_data["work"] = "Not Available"
+        
+        # Print summary of what we found
+        print("\nExtraction summary:")
+        print(f"Region: {customer_data['region']}")
+        print(f"Standards: {customer_data['standards']}")
+        print(f"Favorite Effects: {customer_data['favorite_effects']}")
+        print(f"Relations: {customer_data['relations']}")
+        print(f"Residency: {customer_data['residency'][:30]}..." if len(customer_data['residency']) > 30 else f"Residency: {customer_data['residency']}")
+        print(f"Work: {customer_data['work'][:30]}..." if len(customer_data['work']) > 30 else f"Work: {customer_data['work']}")
+        
+        return customer_data
+        
+    def _process_effects_list(self, text):
+        """Process a list of effects, handling cases where they're squished together"""
+        if not text:
+            return []
+            
+        # List of all known effects for pattern matching
+        known_effects = [
+            "Calming", "Sedating", "Refreshing", "Euphoric", "Energizing", 
+            "Disorienting", "Foggy", "Glowing", "Balding", "Athletic", 
+            "Focused", "Thought-Provoking", "Sneaky", "Munchies", 
+            "Smelly", "Spicy", "Toxic", "Slippery", "Calorie-Dense",
+            "Shrinking", "Gingeritis", "Long Faced", "Bright-Eyed",
+            "Seizure-Inducing", "Laxative", "Paranoia", "Tropic Thunder",
+            "Schizophrenic", "Explosive", "Anti-Gravity", "Lethal",
+            "Jennerising", "Electrifying"
+        ]
+        
+        # First try splitting by commas and other separators
+        effects = []
+        for part in re.split(r'[,;/]+', text):
+            part = part.strip()
+            if part:
+                effects.append(part)
+        
+        # Check if we have any squished-together effects
+        new_effects = []
+        for effect in effects:
+            # If the effect contains known effect names without spaces between them
+            if any(e in effect for e in known_effects) and len(effect) > 20:
+                # Create a regex pattern that looks for all known effects
+                pattern = '|'.join(known_effects)
+                pattern = f'({pattern})'
+                
+                # Find all effect names in the string
+                found_effects = re.findall(pattern, effect)
+                if found_effects:
+                    new_effects.extend(found_effects)
+                else:
+                    new_effects.append(effect)
+            else:
+                new_effects.append(effect)
+        
+        return new_effects if new_effects else []
+    
+    def _process_relations_list(self, text):
+        """Process a list of relations, handling cases where they're squished together"""
+        if not text:
+            return []
+        
+        # First try splitting by commas and other separators
+        relations = []
+        for part in re.split(r'[,;/]+', text):
+            part = part.strip()
+            if part:
+                relations.append(part)
+        
+        # Check if we have any squished-together names
+        new_relations = []
+        for relation in relations:
+            # If the relation is unusually long without spaces, try to split it
+            if relation and len(relation) > 20:
+                # Split by capital letter preceded by lowercase (e.g., "JohnSmith" -> ["John", "Smith"])
+                split_relations = re.findall(r'[A-Z][^A-Z]*', relation)
+                if split_relations:
+                    new_relations.extend(split_relations)
+                else:
+                    new_relations.append(relation)
+            else:
+                new_relations.append(relation)
+        
+        return new_relations if new_relations else []
+
+    def sort_customers_by_column(self, column):
+        """Sort the customer list by the selected column"""
+        items = [(self.customer_tree.set(child, column), child) for child in self.customer_tree.get_children('')]
+        
+        # Determine sort direction (toggle current direction)
+        reverse = False
+        if self.customer_sort_column == column and not self.customer_sort_reverse:
+            reverse = True
+        
+        # Update sort state
+        self.customer_sort_column = column
+        self.customer_sort_reverse = reverse
+        
+        # Sort the items
+        items.sort(reverse=reverse)
+        
+        # Move items in the sorted order
+        for index, (_, child) in enumerate(items):
+            self.customer_tree.move(child, '', index)
+            
+        # Update headings to show sort direction
+        for col in ["Name", "Region", "Standards", "Favorite Effects"]:
+            if col == column:
+                direction = " ▼" if reverse else " ▲"
+                self.customer_tree.heading(col, text=f"{col}{direction}")
+            else:
+                self.customer_tree.heading(col, text=col)
+        
+        # Update status
+        direction_text = "descending" if reverse else "ascending"
+        self.update_status(f"Sorted customers by {column} ({direction_text})")
 
 
 class FixedHeader(ttk.Frame):
@@ -1340,65 +2699,45 @@ class FixedHeader(ttk.Frame):
         """Scroll both the header and the main treeview horizontally"""
         self.header.xview(*args)
         self.tree.xview(*args)
-        
+    
     def _setup_headers(self, columns):
-        """Setup and synchronize headers between both treeviews"""
-        # Create empty header row in fixed header
-        if self.header["show"] == "headings":
-            self.header.insert("", tk.END, values=["" for _ in columns])
-        
-        # Configure headers
-        for i, col in enumerate(columns):
-            # Configure column in both treeviews identically
-            self.header.heading(col, text=col, anchor=tk.W)
-            self.tree.heading(col, text=col, anchor=tk.W)
-            
-            # Configure column width in both treeviews
+        """Setup the headers to match the main treeview"""
+        for col in columns:
+            self.header.heading(col, text=col)
             self.header.column(col, width=100)
+            self.tree.heading(col, text=col)
             self.tree.column(col, width=100)
-            
-            # Add event binding to sync column resizing
-            self.header.bind('<ButtonRelease-1>', self._sync_resize)
-        
-        # Hide header in main treeview (we'll use our fixed header)
-        self.tree.configure(show="tree")
-        
-    def _sync_resize(self, event):
-        """Synchronize column sizes between header and main treeview"""
-        for col in self.header["columns"]:
-            width = self.header.column(col, "width")
-            self.tree.column(col, width=width)
-            
-    def insert(self, parent, index, **kwargs):
-        """Insert item into the main treeview"""
-        return self.tree.insert(parent, index, **kwargs)
-        
-    def heading(self, column, **kwargs):
-        """Configure headings in both treeviews"""
-        self.header.heading(column, **kwargs)
-        return self.tree.heading(column, **kwargs)
-        
-    def column(self, column, **kwargs):
-        """Configure columns in both treeviews"""
-        self.header.column(column, **kwargs)
-        return self.tree.column(column, **kwargs)
-        
-    def delete(self, *items):
-        """Delete items from the main treeview"""
-        return self.tree.delete(*items)
-        
-    def selection(self):
-        """Get the current selection"""
-        return self.tree.selection()
-        
-    def item(self, item, **kwargs):
-        """Get or configure an item"""
-        return self.tree.item(item, **kwargs)
-        
-    def bind(self, sequence, func, add=None):
+    
+    def insert(self, *args, **kwargs):
+        """Insert a row into the main treeview"""
+        self.tree.insert(*args, **kwargs)
+    
+    def delete(self, *args, **kwargs):
+        """Delete a row from the main treeview"""
+        self.tree.delete(*args, **kwargs)
+    
+    def get_children(self, *args, **kwargs):
+        """Get children of the main treeview"""
+        return self.tree.get_children(*args, **kwargs)
+    
+    def selection(self, *args, **kwargs):
+        """Get or set the selection of the main treeview"""
+        return self.tree.selection(*args, **kwargs)
+    
+    def bind(self, *args, **kwargs):
         """Bind an event to the main treeview"""
-        return self.tree.bind(sequence, func, add)
-        
-    def get_children(self):
-        """Get all children in the main treeview"""
-        return self.tree.get_children()
+        self.tree.bind(*args, **kwargs)
+    
+    def column(self, *args, **kwargs):
+        """Configure a column of the main treeview"""
+        self.tree.column(*args, **kwargs)
+    
+    def heading(self, *args, **kwargs):
+        """Configure a heading of the main treeview"""
+        self.tree.heading(*args, **kwargs)
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ScheduleICalculatorApp(root)
+    root.mainloop()
