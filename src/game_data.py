@@ -35,7 +35,7 @@ MIXERS = {
     "Energy drink": {"effect": "Athletic", "cost": 6, "unlock": "Peddler I"},  # Updated unlock
     "Iodine": {"effect": "Jennerising", "cost": 8, "unlock": "Hustler I"},  # Updated from $7 to $8
     "Addy": {"effect": "Thought-Provoking", "cost": 9, "unlock": "Hustler II"},  # Updated from $8 to $9
-    "Horse semen": {"effect": "Long faced", "cost": 9, "unlock": "Hustler III"}  # Updated from $10 to $9
+    "Horse semen": {"effect": "Long Faced", "cost": 9, "unlock": "Hustler III"}  # Updated from $10 to $9
 }
 
 # Effects with their market value multipliers and addictiveness from the wiki
@@ -69,7 +69,7 @@ EFFECTS = {
     "Tropic Thunder": {"multiplier": 0.46, "addictiveness": 1.00, "tier": 4},  # Updated from wiki
     "Glowing": {"multiplier": 0.48, "addictiveness": 0.78, "tier": 4},
     "Electrifying": {"multiplier": 0.50, "addictiveness": 0.80, "tier": 4},
-    "Long faced": {"multiplier": 0.52, "addictiveness": 1.00, "tier": 4},  # Updated from wiki
+    "Long Faced": {"multiplier": 0.52, "addictiveness": 1.00, "tier": 4},  # Updated from wiki
     "Anti-gravity": {"multiplier": 0.54, "addictiveness": 0.86, "tier": 4},
     "Cyclopean": {"multiplier": 0.56, "addictiveness": 0.88, "tier": 4},
     "Zombifying": {"multiplier": 0.58, "addictiveness": 0.99, "tier": 4},
@@ -113,7 +113,7 @@ EFFECT_INTERACTION_RULES = [
     # Strain-specific effects - using strain names for accuracy
     # Sour Diesel specifics
     ["Refreshing", "Cuke", "Energizing", None],  # Sour Diesel + Cuke adds Energizing
-    ["Refreshing", "Horse semen", "Long faced", None],
+    ["Refreshing", "Horse semen", "Long Faced", None],
     ["Refreshing", "Chili", "Shrinking", None],
     ["Refreshing", "Addy", "Glowing", None],
     
@@ -128,7 +128,7 @@ EFFECT_INTERACTION_RULES = [
     ["Energizing", "Motor oil", "Slippery", None],
     ["Energizing", "Battery", "Bright-Eyed", None],
     ["Energizing", "Addy", "Thought-Provoking", None],
-    ["Energizing", "Horse semen", "Long faced", None],
+    ["Energizing", "Horse semen", "Long Faced", None],
     
     # Granddaddy Purple specifics
     ["Sedating", "Energy drink", "Bright-Eyed", "Sedating"],
@@ -168,8 +168,8 @@ EFFECT_REPLACEMENTS = {
     ("Paranoia", "Flu Medicine"): "Shrinking",
     ("Paranoia", "Mega Bean"): "Jennerising",
     ("Paranoia", "Iodine"): "Foggy",
-    ("Refreshing", "Banana"): "Long faced",
-    ("Refreshing", "Flu Medicine"): "Long faced",
+    ("Refreshing", "Banana"): "Long Faced",
+    ("Refreshing", "Flu Medicine"): "Long Faced",
     # Corrected: Chili does not replace Refreshing with Shrinking, it adds Spicy
     # ("Refreshing", "Chili"): "Shrinking",  # Removed this incorrect mapping
     ("Refreshing", "Addy"): "Glowing",
@@ -213,7 +213,7 @@ RECIPES = {
                   "Horse semen", "Iodine", "Cuke", "Gasoline", "Horse semen", 
                   "Battery", "Energy drink", "Mega bean", "Mouth wash"],
         "effects": ["Shrinking", "Zombifying", "Cyclopean", "Anti-gravity", 
-                   "Long faced", "Electrifying", "Glowing", "Tropic Thunder"],
+                   "Long Faced", "Electrifying", "Glowing", "Tropic Thunder"],
         "multiplier_total": 4.24
     },
     "Mega Diamond": {
@@ -222,7 +222,7 @@ RECIPES = {
                   "Banana", "Horse semen", "Iodine", "Cuke", "Gasoline", 
                   "Horse semen", "Battery", "Energy drink", "Mega bean", "Mouth wash"],
         "effects": ["Shrinking", "Zombifying", "Cyclopean", "Anti-gravity", 
-                   "Long faced", "Electrifying", "Glowing", "Tropic Thunder"],
+                   "Long Faced", "Electrifying", "Glowing", "Tropic Thunder"],
         "multiplier_total": 4.24
     },
     "Efficient Mix": {  # Example of more efficient mix from comments
@@ -230,7 +230,7 @@ RECIPES = {
         "mixers": ["Banana", "Cuke", "Paracetamol", "Gasoline", "Cuke", 
                   "Battery", "Horse semen", "Mega bean"],
         "effects": ["Electrifying", "Glowing", "Tropic Thunder", "Zombifying", 
-                   "Cyclopean", "Bright-Eyed", "Long faced", "Foggy"],
+                   "Cyclopean", "Bright-Eyed", "Long Faced", "Foggy"],
         "profit": 302
     }
 }
