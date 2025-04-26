@@ -47,21 +47,6 @@ def get_effects_from_mixers(base_product, mixer_list):
             if default_effect not in effects and len(effects) < 8:
                 effects.append(default_effect)
     
-    # Special cases for missing effects from test data
-    # Green Crack special effects
-    if base_product == "Green Crack":
-        if "Thought-Provoking" not in effects and "Banana" in mixer_list:
-            effects.append("Thought-Provoking")
-        if "Sneaky" not in effects and "Paracetamol" in mixer_list:
-            effects.append("Sneaky")
-    
-    # OG Kush special effects
-    if base_product == "OG Kush":
-        if "Slippery" not in effects and "Paracetamol" in mixer_list:
-            effects.append("Slippery")
-        if "Gingeritis" not in effects and "Banana" in mixer_list:
-            effects.append("Gingeritis")
-    
     # Limit to 8 effects (game maximum)
     return effects[:8]
 
@@ -88,53 +73,7 @@ def calculate_market_value(base_product, effects_list, mixer_list=None):
     else:
         raise ValueError(f"Unknown product: {base_product}")
     
-    # Special case overrides based on empirical testing
-    if mixer_list:
-        # Green Crack special cases
-        if base_product == "Green Crack":
-            if "Flu medicine" in mixer_list:
-                return 52  # Green Crack + Flu medicine
-            elif "Banana" in mixer_list:
-                return 57  # Green Crack + Banana
-            elif "Paracetamol" in mixer_list:
-                return 43  # Green Crack + Paracetamol
-            elif "Donut" in mixer_list:
-                return 52  # Green Crack + Donut
-            elif "Tropic Thunder" in effects_list or "Viagra" in mixer_list:
-                return 59  # Green Crack + Viagra
-            elif "Athletic" in effects_list or "Energy drink" in mixer_list:
-                return 54  # Green Crack + Energy Drink
-        
-        # OG Kush special cases
-        elif base_product == "OG Kush":
-            if "Paracetamol" in mixer_list:
-                return 55  # OG Kush + Paracetamol
-            elif "Motor oil" in mixer_list:
-                return 50  # OG Kush + Motor oil
-            elif "Viagra" in mixer_list:
-                return 55  # OG Kush + Viagra
-            elif "Banana" in mixer_list:
-                return 50  # OG Kush + Banana
-            elif "Cuke" in mixer_list:
-                return 46  # OG Kush + Cuke
-            elif "Donut" in mixer_list:
-                return 48  # OG Kush + Donut
-        
-        # Sour Diesel special cases
-        elif base_product == "Sour Diesel":
-            if "Cuke" in mixer_list:
-                return 48  # Sour Diesel + Cuke
-            elif "Mouth wash" in mixer_list:
-                return 50  # Sour Diesel + Mouth wash
-        
-        # Granddaddy Purple special cases
-        elif base_product == "Granddaddy Purple":
-            if "Viagra" in mixer_list:
-                return 60  # Granddaddy Purple + Viagra
-            elif "Banana" in mixer_list:
-                return 51  # Granddaddy Purple + Banana
-    
-    # Calculate total multiplier if no special case matched
+    # Calculate total multiplier
     multiplier_total = sum(EFFECTS[effect]["multiplier"] for effect in effects_list if effect in EFFECTS)
     
     # Calculate total value using the game's formula
