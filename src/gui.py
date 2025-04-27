@@ -2655,6 +2655,27 @@ class ScheduleICalculatorApp:
         # Update status
         direction_text = "descending" if reverse else "ascending"
         self.update_status(f"Sorted customers by {column} ({direction_text})")
+    
+    def load_dealer_data(self):
+        """Load dealer data from file and update the UI if needed.
+        This method is called after dealer data is updated in the background."""
+        from src.dealer_data import load_dealer_data
+        
+        try:
+            self.dealer_data = load_dealer_data()
+            
+            # If there's a dealer tab, we'd update it here
+            # This will be implemented when the dealer management tab is added
+            
+            # Update status with count of loaded dealers
+            dealer_count = len(self.dealer_data.get("dealers", []))
+            self.update_status(f"Dealer data updated: {dealer_count} dealers loaded")
+            
+            return True
+        except Exception as e:
+            self.update_status(f"Error loading dealer data: {str(e)}")
+            print(f"Error loading dealer data: {e}")
+            return False
 
 
 class FixedHeader(ttk.Frame):
