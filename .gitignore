@@ -50,6 +50,8 @@ venv.bak/
 
 # User data
 customer_data.json
+dealer_data.json
+game_data.json
 
 # Logs
 *.log
