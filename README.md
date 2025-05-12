@@ -13,6 +13,7 @@ Copyright © 2025 Kibah Corps. All rights reserved.
 - **Customer Database**: Track customer preferences, locations, relations, and purchase history
 - **Game Data Repository**: Browse comprehensive reference data on all in-game products and effects
 - **Data Analysis Tools**: Analyze test results and improve business strategies
+- **Improved Loading Experience**: Granular progress updates during startup for better user experience
 
 ## How to Use
 
@@ -29,6 +30,12 @@ python test_framework.py  # To document in-game observations
 python data_analyzer.py   # To analyze collected data and suggest improvements
 ```
 
+For manual data fetching:
+
+```bash
+python fetch_dealers_improved.py  # Fetch dealer data from the Schedule I wiki
+```
+
 ## Project Structure
 
 - `main.py` - Main application entry point
@@ -37,13 +44,23 @@ python data_analyzer.py   # To analyze collected data and suggest improvements
   - `game_data.py` - Game data constants, effects, and formulas
   - `gui.py` - User interface components and application logic
   - `customer_data.py` - Customer data management utilities
+  - `dealer_data.py` - Dealer data management utilities
 - `test_framework.py` - Testing framework for documenting in-game results
 - `data_analyzer.py` - Data analysis tool for improving calculator accuracy
+- `fetch_dealers_improved.py` - Script for fetching dealer data from the wiki
 - `customer_data.json` - Local database file for customer information (not tracked in git)
+- `dealer_data.json` - Local database file for dealer information (not tracked in git)
+- `game_data.json` - Local database file for custom game data (not tracked in git)
 
 ## Development
 
 This application is regularly updated with new features and improved accuracy as more in-game data is collected. The software models the in-game economy based on extensive testing and analysis.
+
+### Recent Updates
+
+- **Enhanced Data Loading**: Implemented granular progress updates during application startup
+- **Reliable Dealer Data Fetching**: Improved web scraping of dealer information from the Schedule I wiki
+- **Preserved Custom Settings**: Data updates now preserve custom settings and assignments
 
 ### Contributing
 
