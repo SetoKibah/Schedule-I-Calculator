@@ -1055,19 +1055,24 @@ def fetch_dealer_details(url, headers=None):
     return dealer_data
 
 
-def fetch_dealers_from_urls(urls):
+def fetch_dealers_from_urls(urls, callback=None):
     """Fetch dealer information from a list of wiki URLs.
     
     Args:
         urls (list): List of wiki URLs for dealers
+        callback (function, optional): Function to call with progress updates
         
     Returns:
         list: List of dealer data dictionaries
     """
     dealers = []
     
-    for url in urls:
+    for i, url in enumerate(urls):
         try:
+            if callback:
+                progress = (i / len(urls)) * 100
+                callback(f"Fetching data from {url.split('/')[-1].replace('_', ' ')}", progress)
+                
             print(f"Fetching data from {url}")
             dealer_data = fetch_dealer_details(url)
             
@@ -1080,3 +1085,81 @@ def fetch_dealers_from_urls(urls):
             print(f"Error processing {url}: {e}")
     
     return dealers
+
+
+def update_dealers_preserve_assignments(file_path="dealer_data.json", progress_callback=None):
+    """Update dealer data from wiki while preserving customer assignments.
+    
+    Args:
+        file_path (str): Path to the dealer data file
+        progress_callback (function, optional): Function to call with progress updates
+        
+    Returns:
+        dict: Updated dealer data with preserved customer assignments
+    """
+    # Load existing dealer data with customer assignments
+    if progress_callback:
+        progress_callback("Loading existing dealer data...", 5)
+    existing_data = load_dealer_data(file_path)
+    existing_dealers = {d["name"]: d for d in existing_data.get("dealers", [])}
+    
+    # Create a mapping of dealer names to their assigned customers
+    if progress_callback:
+        progress_callback("Preserving customer assignments...", 10)
+    assignments = {}
+    for dealer_name, dealer in existing_dealers.items():
+        if "assigned_customers" in dealer:
+            assignments[dealer_name] = dealer["assigned_customers"]
+    
+    # Fetch new dealer data from the wiki - avoid circular import by importing here
+    if progress_callback:
+        progress_callback("Fetching new dealer data from wiki...", 15)
+    
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    
+    def fetch_progress(message, percentage):
+        # Map the fetch progress (0-100) to our overall progress (15-90)
+        if progress_callback:
+            mapped_percentage = 15 + (percentage * 0.75)
+            progress_callback(message, mapped_percentage)
+    
+    from fetch_dealers_improved import fetch_actual_dealers
+    
+    try:
+        new_dealers = fetch_actual_dealers(progress_callback=fetch_progress if progress_callback else None)
+        
+        # If we couldn't fetch dealers, use existing data
+        if not new_dealers:
+            if progress_callback:
+                progress_callback("Warning: No dealers fetched from wiki. Using existing dealer data.", 90)
+            print("Warning: No dealers fetched from wiki. Using existing dealer data.")
+            return existing_data
+        
+        # Merge the new dealer data with existing customer assignments
+        if progress_callback:
+            progress_callback("Merging new dealer data with assignments...", 95)
+        
+        for dealer in new_dealers:
+            dealer_name = dealer["name"]
+            if dealer_name in assignments:
+                dealer["assigned_customers"] = assignments[dealer_name]
+        
+        # Save the updated dealer data
+        updated_data = {"dealers": new_dealers}
+        if progress_callback:
+            progress_callback("Saving updated dealer data...", 98)
+        save_dealer_data(updated_data, file_path)
+        
+        if progress_callback:
+            progress_callback("Dealer data update complete", 100)
+        
+        return updated_data
+        
+    except Exception as e:
+        if progress_callback:
+            progress_callback(f"Error updating dealer data: {e}", 100)
+        print(f"Error updating dealer data: {e}")
+        # Return existing data in case of error
+        return existing_data

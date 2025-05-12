@@ -540,3 +540,100 @@ def _extract_from_text_patterns(article, customer_data):
                     print(f"Found work via regex: {customer_data['work'][:30]}...")
     except Exception as e:
         print(f"Error in direct text search: {e}")
+
+
+def update_customers_preserve_assignments(file_path="customer_data.json", progress_callback=None):
+    """Update customer data from wiki while preserving dealer assignments.
+    
+    Args:
+        file_path (str): Path to the customer data file
+        progress_callback (function, optional): Function to call with progress updates
+        
+    Returns:
+        dict: Updated customer data
+    """
+    # Load existing customer data
+    if progress_callback:
+        progress_callback("Loading existing customer data...", 5)
+    existing_data = load_customer_data(file_path)
+    
+    # Fetch new customer data from the wiki - avoid circular import by importing here
+    if progress_callback:
+        progress_callback("Preparing to fetch new customer data...", 10)
+    
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    
+    def fetch_progress(message, percentage):
+        # Map the fetch progress (0-100) to our overall progress (10-90)
+        if progress_callback:
+            mapped_percentage = 10 + (percentage * 0.8)
+            progress_callback(message, mapped_percentage)
+    
+    from fetch_dealers_improved import fetch_all_customers
+    
+    try:
+        if progress_callback:
+            progress_callback("Connecting to customer wiki...", 15)
+        
+        new_customers = fetch_all_customers(progress_callback=fetch_progress if progress_callback else None)
+        
+        # If we couldn't fetch customers, use existing data
+        if not new_customers:
+            if progress_callback:
+                progress_callback("Warning: No customers fetched from wiki. Using existing customer data.", 90)
+            print("Warning: No customers fetched from wiki. Using existing customer data.")
+            return existing_data
+        
+        # Fix customer data to ensure all fields are properly formatted
+        if progress_callback:
+            progress_callback("Standardizing customer data format...", 92)
+        new_customers_fixed = []
+        for customer in new_customers:
+            # Fix standards formatting
+            if customer.get("standards") == "Medium":
+                customer["standards"] = "Moderate"
+            
+            # Make sure all required fields exist
+            if "name" not in customer:
+                continue  # Skip customers without names
+                
+            if "region" not in customer or not customer["region"]:
+                customer["region"] = "Not Available"
+                
+            if "standards" not in customer or not customer["standards"]:
+                customer["standards"] = "Not Available"
+                
+            if "favorite_effects" not in customer:
+                customer["favorite_effects"] = []
+                
+            if "relations" not in customer:
+                customer["relations"] = []
+                
+            if "residency" not in customer:
+                customer["residency"] = "Not Available"
+                
+            if "work" not in customer:
+                customer["work"] = "Not Available"
+                
+            new_customers_fixed.append(customer)
+        
+        # Save the updated customer data
+        if progress_callback:
+            progress_callback("Saving updated customer data...", 95)
+        
+        updated_data = {"customers": new_customers_fixed}
+        save_customer_data(updated_data, file_path)
+        
+        if progress_callback:
+            progress_callback("Customer data update complete", 100)
+        
+        return updated_data
+        
+    except Exception as e:
+        if progress_callback:
+            progress_callback(f"Error updating customer data: {e}", 100)
+        print(f"Error updating customer data: {e}")
+        # Return existing data in case of error
+        return existing_data

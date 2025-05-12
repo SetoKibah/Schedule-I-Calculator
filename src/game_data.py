@@ -3,6 +3,9 @@ Schedule I Game Data
 Contains constants and data structures for the Schedule I drug mixing profit calculator.
 """
 
+import json
+import os
+
 # Base market values for each product type
 BASE_MARKET_VALUES = {
     "Marijuana": 38,
@@ -195,3 +198,127 @@ RECIPES = {
         "profit": 302
     }
 }
+
+# Product price tiers
+PRODUCT_TIERS = {
+    "Budget": 0.8,
+    "Standard": 1.0,
+    "Premium": 1.2,
+    "Ultra Premium": 1.5,
+    "Legendary": 2.0
+}
+
+# Base combinations - mapping of product type combinations to known result types
+BASE_COMBINATIONS = {
+    # Single base products
+    ("Marijuana",): "Marijuana",
+    ("Methamphetamine",): "Methamphetamine",
+    ("Cocaine",): "Cocaine",
+    
+    # Combination base products
+    ("Marijuana", "Methamphetamine"): "Methamphetamine Mix",
+    ("Marijuana", "Cocaine"): "Cocaine Mix",
+    ("Methamphetamine", "Cocaine"): "Speedball",
+    ("Marijuana", "Methamphetamine", "Cocaine"): "Mega Mix",
+}
+
+def update_game_data_preserve_custom_settings(file_path="game_data.json", progress_callback=None):
+    """Update game data while preserving any custom settings.
+    
+    Args:
+        file_path (str): Path to the game data file
+        progress_callback (function, optional): Function to call with progress updates
+        
+    Returns:
+        dict: Updated game data
+    """
+    # Default game data - this is our official data that would be updated on patches
+    if progress_callback:
+        progress_callback("Loading default game data...", 5)
+    
+    game_data = {
+        "EFFECTS": EFFECTS,
+        "MARIJUANA_STRAINS": MARIJUANA_STRAINS,
+        "MIXERS": MIXERS,
+        "BASE_COMBINATIONS": BASE_COMBINATIONS,
+        "PRODUCT_TIERS": PRODUCT_TIERS
+    }
+    
+    # Check if there's an existing game_data.json file to preserve custom settings
+    if progress_callback:
+        progress_callback("Checking for existing custom settings...", 20)
+    
+    custom_settings = {}
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, 'r') as f:
+                custom_settings = json.load(f)
+                
+            # Make incremental progress updates to show activity
+            if progress_callback:
+                progress_callback("Found existing settings to preserve", 30)
+                
+            # Updates happen in segments to show progress during operations
+            progress_steps = [35, 50, 65, 80, 95]
+            current_step = 0
+                
+            # Preserve custom effects if they exist
+            if "CUSTOM_EFFECTS" in custom_settings:
+                if progress_callback:
+                    progress_callback("Preserving custom effects...", progress_steps[current_step])
+                game_data["CUSTOM_EFFECTS"] = custom_settings["CUSTOM_EFFECTS"]
+                current_step += 1
+                
+            # Preserve custom strains if they exist
+            if "CUSTOM_MARIJUANA_STRAINS" in custom_settings:
+                if progress_callback:
+                    progress_callback("Preserving custom strains...", progress_steps[current_step])
+                game_data["CUSTOM_MARIJUANA_STRAINS"] = custom_settings["CUSTOM_MARIJUANA_STRAINS"]
+                current_step += 1
+                
+            # Preserve custom mixers if they exist
+            if "CUSTOM_MIXERS" in custom_settings:
+                if progress_callback:
+                    progress_callback("Preserving custom mixers...", progress_steps[current_step])
+                game_data["CUSTOM_MIXERS"] = custom_settings["CUSTOM_MIXERS"]
+                current_step += 1
+                
+            # Preserve custom combinations if they exist
+            if "CUSTOM_COMBINATIONS" in custom_settings:
+                if progress_callback:
+                    progress_callback("Preserving custom combinations...", progress_steps[current_step])
+                game_data["CUSTOM_COMBINATIONS"] = custom_settings["CUSTOM_COMBINATIONS"]
+                current_step += 1
+                
+            # Preserve any other custom settings we don't know about
+            for key in custom_settings:
+                if key not in game_data and not key.startswith("_"):
+                    if progress_callback:
+                        progress_callback(f"Preserving other custom setting: {key}...", progress_steps[current_step])
+                    game_data[key] = custom_settings[key]
+        
+        except json.JSONDecodeError:
+            print(f"Warning: Could not parse {file_path}. File may be corrupted.")
+            if progress_callback:
+                progress_callback(f"Warning: Could not parse {file_path}. Creating new file.", 50)
+        except Exception as e:
+            print(f"Error reading game data file: {e}")
+            if progress_callback:
+                progress_callback(f"Error: {str(e)}", 50)
+    
+    # Save the updated game data
+    if progress_callback:
+        progress_callback("Saving updated game data...", 95)
+        
+    try:
+        with open(file_path, 'w') as f:
+            json.dump(game_data, f, indent=4)
+    except Exception as e:
+        print(f"Error saving game data file: {e}")
+        if progress_callback:
+            progress_callback(f"Error saving game data: {str(e)}", 98)
+    
+    if progress_callback:
+        progress_callback("Game data update complete", 100)
+        
+    return game_data

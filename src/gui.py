@@ -32,8 +32,9 @@ class ScheduleICalculatorApp:
         # Data file paths
         self.customer_data_file = "customer_data.json"
         
-        # Load customer data
+        # Load customer data and dealer data
         self.customer_data = self.load_customer_data()
+        self.dealer_data = self.load_dealer_data()
         
         # Setup custom theme with dark green to light green colors
         self.setup_theme()
@@ -45,19 +46,22 @@ class ScheduleICalculatorApp:
         # Create tabs
         self.tab_control = ttk.Notebook(main_frame)
         
+        # Tab pages
         self.calculator_tab = ttk.Frame(self.tab_control)
         self.recipe_tab = ttk.Frame(self.tab_control)
         self.compare_tab = ttk.Frame(self.tab_control)
         self.top_recipes_tab = ttk.Frame(self.tab_control)
         self.data_tab = ttk.Frame(self.tab_control)
-        self.customers_tab = ttk.Frame(self.tab_control)  # New customers tab
+        self.customers_tab = ttk.Frame(self.tab_control)
+        self.dealers_tab = ttk.Frame(self.tab_control)  # New dealers tab
         
         self.tab_control.add(self.calculator_tab, text="Calculator")
         self.tab_control.add(self.recipe_tab, text="Recipes")
         self.tab_control.add(self.compare_tab, text="Compare")
         self.tab_control.add(self.top_recipes_tab, text="Top Recipes")
         self.tab_control.add(self.data_tab, text="Game Data")
-        self.tab_control.add(self.customers_tab, text="Customers")  # Add customers tab
+        self.tab_control.add(self.customers_tab, text="Customers")
+        self.tab_control.add(self.dealers_tab, text="Dealers")  # Add dealers tab
         
         self.tab_control.pack(expand=1, fill="both")
         
@@ -81,6 +85,7 @@ class ScheduleICalculatorApp:
         self.setup_top_recipes_tab()
         self.setup_data_tab()
         self.setup_customers_tab()  # Initialize the new customers tab
+        self.setup_dealers_tab()  # Initialize the dealers tab
         
         # Bind tab change event to update status bar
         self.tab_control.bind("<<NotebookTabChanged>>", self.update_status_on_tab_change)
@@ -2662,20 +2667,580 @@ class ScheduleICalculatorApp:
         from src.dealer_data import load_dealer_data
         
         try:
-            self.dealer_data = load_dealer_data()
-            
-            # If there's a dealer tab, we'd update it here
-            # This will be implemented when the dealer management tab is added
-            
-            # Update status with count of loaded dealers
-            dealer_count = len(self.dealer_data.get("dealers", []))
-            self.update_status(f"Dealer data updated: {dealer_count} dealers loaded")
-            
-            return True
+            dealer_data = load_dealer_data()
+            # Only try to update status if the status_var is already initialized
+            if hasattr(self, 'status_var'):
+                dealer_count = len(dealer_data.get("dealers", []))
+                self.update_status(f"Dealer data updated: {dealer_count} dealers loaded")
+            return dealer_data
         except Exception as e:
-            self.update_status(f"Error loading dealer data: {str(e)}")
-            print(f"Error loading dealer data: {e}")
-            return False
+            print(f"Error loading dealer data: {str(e)}")
+            # Only try to update status if the status_var is already initialized
+            if hasattr(self, 'status_var'):
+                self.update_status(f"Error loading dealer data: {str(e)}")
+            return {"dealers": []}
+
+    def setup_dealers_tab(self):
+        """Setup the Dealers tab for viewing, searching, and assigning customers to dealers"""
+        frame = ttk.Frame(self.dealers_tab, padding="10")
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Split frame into multiple sections
+        left_frame = ttk.Frame(frame)
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        
+        right_frame = ttk.Frame(frame)
+        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
+        
+        # =================================================================
+        # LEFT SECTION - Dealers list and assignment management
+        # =================================================================
+        ttk.Label(left_frame, text="Available Dealers:", style="Subtitle.TLabel").pack(anchor=tk.W, pady=(0, 5))
+        
+        # Dealers list
+        dealers_frame = ttk.Frame(left_frame)
+        dealers_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        columns = ("Name", "Region", "Customers", "Limit")
+        self.dealers_tree = ttk.Treeview(dealers_frame, columns=columns, show="headings", height=7)
+        
+        # Configure columns
+        self.dealers_tree.column("Name", width=150)
+        self.dealers_tree.column("Region", width=120)
+        self.dealers_tree.column("Customers", width=80)
+        self.dealers_tree.column("Limit", width=50)
+        
+        # Add headings
+        for col in columns:
+            self.dealers_tree.heading(col, text=col)
+        
+        # Add scrollbar
+        dealers_scroll = ttk.Scrollbar(dealers_frame, orient=tk.VERTICAL, command=self.dealers_tree.yview)
+        self.dealers_tree.configure(yscrollcommand=dealers_scroll.set)
+        
+        # Layout
+        self.dealers_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        dealers_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Bind selection event
+        self.dealers_tree.bind("<<TreeviewSelect>>", self.show_dealer_customers)
+        
+        # Assigned customers section
+        assigned_frame = ttk.LabelFrame(left_frame, text="Assigned Customers")
+        assigned_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        
+        # List of currently assigned customers for the selected dealer
+        assigned_tree_frame = ttk.Frame(assigned_frame)
+        assigned_tree_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        self.assigned_customers_tree = ttk.Treeview(
+            assigned_tree_frame, 
+            columns=("Name", "Region", "Standards", "Effects"), 
+            show="headings", 
+            height=8
+        )
+        
+        # Configure columns
+        self.assigned_customers_tree.column("Name", width=150)
+        self.assigned_customers_tree.column("Region", width=100)
+        self.assigned_customers_tree.column("Standards", width=80)
+        self.assigned_customers_tree.column("Effects", width=150)
+        
+        # Add headings
+        for col in ["Name", "Region", "Standards", "Effects"]:
+            self.assigned_customers_tree.heading(col, text=col)
+        
+        # Add scrollbar
+        assigned_scroll = ttk.Scrollbar(assigned_tree_frame, orient=tk.VERTICAL, command=self.assigned_customers_tree.yview)
+        self.assigned_customers_tree.configure(yscrollcommand=assigned_scroll.set)
+        
+        # Layout
+        self.assigned_customers_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        assigned_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Assigned customers action buttons
+        assigned_actions = ttk.Frame(assigned_frame)
+        assigned_actions.pack(fill=tk.X, pady=5)
+        
+        ttk.Button(
+            assigned_actions, 
+            text="Remove Selected", 
+            command=self.remove_customer_assignment
+        ).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(
+            assigned_actions, 
+            text="Remove All", 
+            command=self.remove_all_customer_assignments
+        ).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(
+            assigned_actions, 
+            text="Save Assignments", 
+            command=self.save_dealer_assignments
+        ).pack(side=tk.RIGHT, padx=5)
+        
+        # =================================================================
+        # RIGHT SECTION - Customer search and assignment
+        # =================================================================
+        ttk.Label(right_frame, text="Customer Search:", style="Subtitle.TLabel").pack(anchor=tk.W, pady=(0, 5))
+        
+        # Search controls
+        search_frame = ttk.Frame(right_frame)
+        search_frame.pack(fill=tk.X, pady=5)
+        
+        # Search by name/keyword
+        ttk.Label(search_frame, text="Search:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
+        self.dealer_customer_search_var = tk.StringVar()
+        search_entry = ttk.Entry(search_frame, textvariable=self.dealer_customer_search_var, width=25)
+        search_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+        search_entry.bind("<KeyRelease>", self.filter_assignable_customers)
+        
+        # Region filter
+        ttk.Label(search_frame, text="Region:").grid(row=0, column=2, padx=(15, 5), pady=5, sticky=tk.W)
+        self.dealer_customer_region_var = tk.StringVar(value="All")
+        self.region_filter_combo = ttk.Combobox(search_frame, textvariable=self.dealer_customer_region_var, width=15, state="readonly")
+        self.region_filter_combo['values'] = ["All"] + self.get_unique_regions()
+        self.region_filter_combo.grid(row=0, column=3, padx=5, pady=5, sticky=tk.W)
+        self.region_filter_combo.bind("<<ComboboxSelected>>", self.filter_assignable_customers)
+        
+        # Effects filter
+        ttk.Label(search_frame, text="Effect:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
+        self.dealer_customer_effect_var = tk.StringVar(value="All")
+        effects_combo = ttk.Combobox(search_frame, textvariable=self.dealer_customer_effect_var, width=15, state="readonly")
+        effects_combo['values'] = ["All"] + sorted(list(EFFECTS.keys()))
+        effects_combo.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+        effects_combo.bind("<<ComboboxSelected>>", self.filter_assignable_customers)
+        
+        # Standards filter
+        ttk.Label(search_frame, text="Standards:").grid(row=1, column=2, padx=(15, 5), pady=5, sticky=tk.W)
+        self.dealer_customer_standards_var = tk.StringVar(value="All")
+        standards_combo = ttk.Combobox(search_frame, textvariable=self.dealer_customer_standards_var, width=15, state="readonly")
+        standards_combo['values'] = ["All", "Low", "Moderate", "High"]
+        standards_combo.grid(row=1, column=3, padx=5, pady=5, sticky=tk.W)
+        standards_combo.bind("<<ComboboxSelected>>", self.filter_assignable_customers)
+        
+        # Available customers list
+        customers_frame = ttk.LabelFrame(right_frame, text="Available Customers")
+        customers_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        
+        available_tree_frame = ttk.Frame(customers_frame)
+        available_tree_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        self.available_customers_tree = ttk.Treeview(
+            available_tree_frame, 
+            columns=("Name", "Region", "Standards", "Effects"), 
+            show="headings", 
+            height=15
+        )
+        
+        # Configure columns
+        self.available_customers_tree.column("Name", width=150)
+        self.available_customers_tree.column("Region", width=100)
+        self.available_customers_tree.column("Standards", width=80)
+        self.available_customers_tree.column("Effects", width=150)
+        
+        # Add headings
+        for col in ["Name", "Region", "Standards", "Effects"]:
+            self.available_customers_tree.heading(col, text=col)
+        
+        # Add scrollbar
+        available_scroll = ttk.Scrollbar(available_tree_frame, orient=tk.VERTICAL, command=self.available_customers_tree.yview)
+        self.available_customers_tree.configure(yscrollcommand=available_scroll.set)
+        
+        # Layout
+        self.available_customers_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        available_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Assign button
+        assign_frame = ttk.Frame(right_frame)
+        assign_frame.pack(fill=tk.X, pady=10)
+        
+        ttk.Button(
+            assign_frame, 
+            text="Assign Selected Customer", 
+            command=self.assign_customer_to_dealer
+        ).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(
+            assign_frame, 
+            text="Auto-Assign by Region", 
+            command=self.auto_assign_by_region
+        ).pack(side=tk.RIGHT, padx=5)
+        
+        # Initialize the dealer list and customer lists
+        self.refresh_dealer_list()
+        self.refresh_available_customers()
+        
+        # Update status bar
+        self.update_status(f"Dealer Tab: {len(self.dealer_data.get('dealers', []))} dealers available for customer assignment")
+    
+    def refresh_dealer_list(self):
+        """Refresh the dealer list view"""
+        # Clear current items
+        for item in self.dealers_tree.get_children():
+            self.dealers_tree.delete(item)
+        
+        # Add all dealers
+        for i, dealer in enumerate(self.dealer_data.get("dealers", [])):
+            # Count assigned customers
+            assigned_count = len(dealer.get("assigned_customers", []))
+            max_customers = 8  # Default maximum customers per dealer
+            
+            # Insert into tree
+            self.dealers_tree.insert("", tk.END, iid=str(i), values=(
+                dealer.get("name", "Unknown"),
+                dealer.get("region", ""),
+                assigned_count,
+                max_customers
+            ))
+        
+        # Clear assigned customers tree when dealer list is refreshed
+        for item in self.assigned_customers_tree.get_children():
+            self.assigned_customers_tree.delete(item)
+            
+        # Update status
+        dealer_count = len(self.dealer_data.get("dealers", []))
+        self.update_status(f"Dealers: {dealer_count} dealers available")
+    
+    def refresh_available_customers(self):
+        """Refresh the available customers list"""
+        self.filter_assignable_customers()
+    
+    def filter_assignable_customers(self, event=None):
+        """Filter the available customers list based on search criteria"""
+        search_text = self.dealer_customer_search_var.get().lower()
+        region_filter = self.dealer_customer_region_var.get()
+        standards_filter = self.dealer_customer_standards_var.get()
+        effect_filter = self.dealer_customer_effect_var.get()
+        
+        # Clear current items
+        for item in self.available_customers_tree.get_children():
+            self.available_customers_tree.delete(item)
+        
+        # Get list of all customers already assigned to any dealer
+        all_assigned_customers = self.get_all_assigned_customers()
+        
+        # Add filtered customers
+        count = 0
+        for i, customer in enumerate(self.customer_data.get("customers", [])):
+            # Skip if customer is already assigned to a dealer
+            if customer.get("name") in all_assigned_customers:
+                continue
+                
+            # Check if customer matches all filters
+            if search_text and not (
+                search_text in customer.get("name", "").lower() or
+                search_text in customer.get("region", "").lower()
+            ):
+                continue
+            
+            if region_filter != "All" and customer.get("region") != region_filter:
+                continue
+                
+            if standards_filter != "All" and customer.get("standards") != standards_filter:
+                continue
+                
+            if effect_filter != "All" and effect_filter not in customer.get("favorite_effects", []):
+                continue
+            
+            # Add to treeview - display at most 3 favorite effects
+            effects_display = ", ".join(customer.get("favorite_effects", [])[:3])
+            if len(customer.get("favorite_effects", [])) > 3:
+                effects_display += "..."
+                
+            self.available_customers_tree.insert("", tk.END, iid=str(i), values=(
+                customer.get("name", "Unknown"),
+                customer.get("region", ""),
+                customer.get("standards", ""),
+                effects_display
+            ))
+            count += 1
+        
+        # Update status with filter results
+        filters_applied = []
+        if search_text:
+            filters_applied.append(f"search='{search_text}'")
+        if region_filter != "All":
+            filters_applied.append(f"region='{region_filter}'")
+        if standards_filter != "All":
+            filters_applied.append(f"standards='{standards_filter}'")
+        if effect_filter != "All":
+            filters_applied.append(f"effect='{effect_filter}'")
+            
+        if filters_applied:
+            self.update_status(f"Showing {count} unassigned customers matching {', '.join(filters_applied)}")
+        else:
+            self.update_status(f"Showing {count} unassigned customers")
+    
+    def get_all_assigned_customers(self):
+        """Get a list of all customer names that are assigned to any dealer"""
+        assigned_customers = []
+        for dealer in self.dealer_data.get("dealers", []):
+            if "assigned_customers" in dealer:
+                assigned_customers.extend([c.get("name") for c in dealer.get("assigned_customers", [])])
+        return assigned_customers
+    
+    def show_dealer_customers(self, event=None):
+        """Show customers assigned to the selected dealer"""
+        selected = self.dealers_tree.selection()
+        if not selected:
+            return
+            
+        try:
+            # Get the selected dealer index
+            dealer_index = int(selected[0])
+            dealer = self.dealer_data["dealers"][dealer_index]
+            
+            # Clear current items in assigned customers tree
+            for item in self.assigned_customers_tree.get_children():
+                self.assigned_customers_tree.delete(item)
+            
+            # Add assigned customers
+            assigned_customers = dealer.get("assigned_customers", [])
+            for i, customer in enumerate(assigned_customers):
+                # Display at most 3 favorite effects
+                effects_display = ", ".join(customer.get("favorite_effects", [])[:3])
+                if len(customer.get("favorite_effects", [])) > 3:
+                    effects_display += "..."
+                    
+                self.assigned_customers_tree.insert("", tk.END, iid=str(i), values=(
+                    customer.get("name", "Unknown"),
+                    customer.get("region", ""),
+                    customer.get("standards", ""),
+                    effects_display
+                ))
+            
+            # Update status
+            assigned_count = len(assigned_customers)
+            max_customers = 8
+            self.update_status(f"Dealer: {dealer.get('name')} ({assigned_count}/{max_customers} customers)")
+            
+        except (IndexError, ValueError) as e:
+            print(f"Error showing dealer customers: {e}")
+    
+    def assign_customer_to_dealer(self):
+        """Assign the selected customer to the selected dealer"""
+        dealer_selection = self.dealers_tree.selection()
+        customer_selection = self.available_customers_tree.selection()
+        
+        if not dealer_selection:
+            messagebox.showinfo("Select Dealer", "Please select a dealer to assign customers to.")
+            return
+            
+        if not customer_selection:
+            messagebox.showinfo("Select Customer", "Please select a customer to assign to the dealer.")
+            return
+        
+        try:
+            # Get the selected dealer
+            dealer_index = int(dealer_selection[0])
+            dealer = self.dealer_data["dealers"][dealer_index]
+            
+            # Check if dealer has reached the limit
+            assigned_customers = dealer.get("assigned_customers", [])
+            if len(assigned_customers) >= 8:  # Maximum 8 customers per dealer
+                messagebox.showwarning(
+                    "Dealer Limit Reached", 
+                    f"{dealer.get('name')} has already reached the maximum of 8 customers."
+                )
+                return
+            
+            # Get the selected customer
+            customer_index = int(customer_selection[0])
+            customer = self.customer_data["customers"][customer_index]
+            
+            # Add customer to dealer's assigned list if not already there
+            if not any(c.get("name") == customer.get("name") for c in assigned_customers):
+                # Initialize assigned_customers if it doesn't exist
+                if "assigned_customers" not in dealer:
+                    dealer["assigned_customers"] = []
+                
+                # Add customer to dealer's list
+                dealer["assigned_customers"].append(customer)
+                
+                # Update displays
+                self.refresh_dealer_list()
+                self.dealers_tree.selection_set(dealer_selection)
+                self.show_dealer_customers()
+                self.filter_assignable_customers()
+                
+                self.update_status(f"Assigned {customer.get('name')} to {dealer.get('name')}")
+            else:
+                messagebox.showinfo(
+                    "Already Assigned", 
+                    f"{customer.get('name')} is already assigned to {dealer.get('name')}"
+                )
+            
+        except (IndexError, ValueError) as e:
+            print(f"Error assigning customer: {e}")
+            messagebox.showerror("Assignment Error", f"An error occurred: {str(e)}")
+    
+    def remove_customer_assignment(self):
+        """Remove the selected customer assignment from the selected dealer"""
+        dealer_selection = self.dealers_tree.selection()
+        customer_selection = self.assigned_customers_tree.selection()
+        
+        if not dealer_selection:
+            messagebox.showinfo("Select Dealer", "Please select a dealer.")
+            return
+            
+        if not customer_selection:
+            messagebox.showinfo("Select Customer", "Please select a customer to remove from the dealer.")
+            return
+        
+        try:
+            # Get the selected dealer
+            dealer_index = int(dealer_selection[0])
+            dealer = self.dealer_data["dealers"][dealer_index]
+            
+            # Get the selected customer
+            customer_index = int(customer_selection[0])
+            assigned_customers = dealer.get("assigned_customers", [])
+            
+            if 0 <= customer_index < len(assigned_customers):
+                customer = assigned_customers[customer_index]
+                
+                # Remove customer from dealer's list
+                dealer["assigned_customers"].pop(customer_index)
+                
+                # Update displays
+                self.refresh_dealer_list()
+                self.dealers_tree.selection_set(dealer_selection)
+                self.show_dealer_customers()
+                self.filter_assignable_customers()
+                
+                self.update_status(f"Removed {customer.get('name')} from {dealer.get('name')}")
+            
+        except (IndexError, ValueError) as e:
+            print(f"Error removing customer assignment: {e}")
+            messagebox.showerror("Removal Error", f"An error occurred: {str(e)}")
+    
+    def remove_all_customer_assignments(self):
+        """Remove all customer assignments from the selected dealer"""
+        dealer_selection = self.dealers_tree.selection()
+        
+        if not dealer_selection:
+            messagebox.showinfo("Select Dealer", "Please select a dealer.")
+            return
+        
+        try:
+            # Get the selected dealer
+            dealer_index = int(dealer_selection[0])
+            dealer = self.dealer_data["dealers"][dealer_index]
+            
+            # Confirm with user
+            if not messagebox.askyesno(
+                "Confirm Removal", 
+                f"Are you sure you want to remove all customers from {dealer.get('name')}?"
+            ):
+                return
+            
+            # Clear the dealer's customer list
+            dealer["assigned_customers"] = []
+            
+            # Update displays
+            self.refresh_dealer_list()
+            self.dealers_tree.selection_set(dealer_selection)
+            self.show_dealer_customers()
+            self.filter_assignable_customers()
+            
+            self.update_status(f"Removed all customers from {dealer.get('name')}")
+            
+        except (IndexError, ValueError) as e:
+            print(f"Error removing all customer assignments: {e}")
+            messagebox.showerror("Removal Error", f"An error occurred: {str(e)}")
+    
+    def auto_assign_by_region(self):
+        """Automatically assign customers to dealers based on matching regions"""
+        # Confirm with user
+        if not messagebox.askyesno(
+            "Confirm Auto-Assignment", 
+            "This will automatically assign unassigned customers to dealers in the same region.\n\n"
+            "Each dealer can have a maximum of 8 customers.\n\n"
+            "Continue with auto-assignment?"
+        ):
+            return
+            
+        try:
+            # Keep track of how many customers were assigned
+            assigned_count = 0
+            
+            # Start with a fresh list of all assigned customers
+            all_assigned_customers = self.get_all_assigned_customers()
+            
+            # Process each dealer
+            for dealer_index, dealer in enumerate(self.dealer_data.get("dealers", [])):
+                # Skip dealers that are already at capacity
+                assigned_customers = dealer.get("assigned_customers", [])
+                if not assigned_customers:
+                    dealer["assigned_customers"] = []
+                    assigned_customers = dealer["assigned_customers"]
+                    
+                if len(assigned_customers) >= 8:
+                    continue
+                    
+                # Get the dealer's region
+                dealer_region = dealer.get("region", "")
+                if not dealer_region:
+                    continue
+                
+                # Find customers in the same region who aren't assigned yet
+                available_slots = 8 - len(assigned_customers)
+                customers_added = 0
+                
+                for customer in self.customer_data.get("customers", []):
+                    # Skip if we've filled up this dealer
+                    if customers_added >= available_slots:
+                        break
+                        
+                    # Skip if customer is already assigned to any dealer
+                    if customer.get("name") in all_assigned_customers:
+                        continue
+                        
+                    # Check if regions match
+                    if customer.get("region") == dealer_region:
+                        # Add customer to dealer
+                        dealer["assigned_customers"].append(customer)
+                        all_assigned_customers.append(customer.get("name"))
+                        customers_added += 1
+                        assigned_count += 1
+            
+            # Update displays
+            self.refresh_dealer_list()
+            self.filter_assignable_customers()
+            
+            if assigned_count > 0:
+                messagebox.showinfo(
+                    "Auto-Assignment Complete", 
+                    f"Successfully assigned {assigned_count} customers to dealers based on matching regions."
+                )
+                self.update_status(f"Auto-assigned {assigned_count} customers by region")
+            else:
+                messagebox.showinfo(
+                    "No Assignments Made", 
+                    "No new customer assignments were made. This could be because all customers are already assigned, "
+                    "or there are no region matches between unassigned customers and dealers with available slots."
+                )
+                self.update_status("Auto-assignment completed with no changes")
+                
+        except Exception as e:
+            print(f"Error in auto-assignment: {e}")
+            messagebox.showerror("Auto-Assignment Error", f"An error occurred: {str(e)}")
+    
+    def save_dealer_assignments(self):
+        """Save the current dealer assignments to file"""
+        try:
+            # Save to dealer_data.json
+            with open("dealer_data.json", "w") as f:
+                json.dump(self.dealer_data, f, indent=4)
+                
+            messagebox.showinfo("Success", "Dealer assignments saved successfully!")
+            self.update_status("Dealer assignments saved to dealer_data.json")
+            
+        except Exception as e:
+            print(f"Error saving dealer assignments: {e}")
+            messagebox.showerror("Save Error", f"Failed to save dealer assignments: {str(e)}")
 
 
 class FixedHeader(ttk.Frame):
